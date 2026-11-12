@@ -149,10 +149,38 @@ UDP 8189 даёт минимальную задержку; TCP 8189 — запа
 ## Сборка и публикация контейнера
 
 - **Dockerfile** — multi-stage сборка, итоговый образ на distroless/static ~20 МБ.
-- `.github/workflows/release.yml` — на каждый push в `main` и теги `v*`: тесты →
-  сборка multi-arch (amd64+arm64) → публикация в GHCR
-  `ghcr.io/vdao/webinar_mtx` (теги `latest`, `vX.Y.Z`, sha). Аутентификация через
-  встроенный `GITHUB_TOKEN` — секреты настраивать не нужно.
+- `.github/workflows/release.yml` на каждый push в `main` и теги `v*`: тесты →
+  сборка multi-arch (amd64+arm64) → публикация:
+  - **GHCR** `ghcr.io/vdao/webinar_mtx` — всегда (dev-сборки `main`: теги
+    `latest` и sha; релизные теги: `X.Y.Z`, `X.Y`, sha). Аутентификация через
+    встроенный `GITHUB_TOKEN` — секреты не нужны.
+  - **Docker Hub** `docker.io/<неймспейс>/webinar_mtx` — только официальные
+    релизы (теги `v*`): теги `X.Y.Z`, `X.Y` и `latest` (всегда последний
+    стабильный релиз, dev-сборки `main` туда не попадают).
+
+### Включение публикации на Docker Hub
+
+1. На hub.docker.com создайте Personal Access Token с правами Read/Write
+   (Account Settings → Personal access tokens). Репозиторий `webinar_mtx`
+   создастся автоматически при первом пуше в вашем неймспейсе.
+2. В настройках репозитория (Settings → Secrets and variables → Actions):
+
+| Где | Имя | Значение |
+|---|---|---|
+| Variables | `DOCKERHUB_NAMESPACE` | ваш пользователь или организация на Docker Hub (без переменной публикация туда просто пропускается) |
+| Secrets | `DOCKERHUB_USERNAME` | имя пользователя Docker Hub для входа |
+| Secrets | `DOCKERHUB_TOKEN` | Personal Access Token |
+
+3. Выпустите релиз — пуш тега запускает официальный паблиш:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+После этого образ доступен как `docker.io/<неймспейс>/webinar_mtx:0.3.0`
+(а также `:0.3` и `:latest`). Если хотите, чтобы `docker-compose.yml` тянул
+образ с Docker Hub — поменяйте `image:` у сервиса `app`.
 
 ## Автодеплой
 
