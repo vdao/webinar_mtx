@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Status}}</title>
+{{template "css"}}{{template "favicon"}}
+</head>
+<body class="center-page dark">
+<div class="card join-card">
+  <div class="err-code">{{.Status}}</div>
+  <p class="join-desc">{{.Text}}</p>
+  {{if .IsAdmin}}<a class="btn" href="/admin/webinars">В админку</a>{{end}}
+</div>
+</body>
+</html>

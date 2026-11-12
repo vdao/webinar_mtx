@@ -1,0 +1,84 @@
+{{template "admin_head" .}}
+{{template "flash" .Flash}}
+
+<div class="page-head">
+  <div>
+    <div class="breadcrumbs"><a href="/admin/webhooks">Вебхуки</a> / {{.Webhook.Name}}</div>
+    <h1>{{.Webhook.Name}}</h1>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2 class="card-title">Настройки приёма</h2>
+    <div class="field">
+      <div class="field-label">URL вебхука</div>
+      <div class="copy-line"><code id="hook-url">{{.HookURL}}</code><button class="btn btn-sm" data-copy="#hook-url" type="button">Копировать</button></div>
+    </div>
+    <div class="field">
+      <div class="field-label">Секрет (заголовок X-Webhook-Secret или параметр ?secret=)</div>
+      <div class="copy-line"><code id="hook-secret">{{.Webhook.Secret}}</code><button class="btn btn-sm" data-copy="#hook-secret" type="button">Копировать</button></div>
+      <form method="post" action="/admin/webhooks/{{.Webhook.ID}}/secret" class="mt-1">
+        <button class="btn btn-sm" type="submit" data-confirm="Сгенерировать новый секрет? Прежний перестанет работать.">Перегенерировать</button>
+      </form>
+    </div>
+
+    <form method="post" action="/admin/webhooks/{{.Webhook.ID}}">
+      <label>Название
+        <input type="text" name="name" value="{{.Webhook.Name}}" required>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="is_active" {{if .Webhook.IsActive}}checked{{end}}> Активен
+      </label>
+      <div class="form-row">
+        <label class="grow">Путь к email в JSON
+          <input type="text" name="email_path" value="{{.Webhook.EmailPath}}" placeholder="object.metadata.email">
+        </label>
+        <label class="grow">Путь к товару/тарифу
+          <input type="text" name="product_path" value="{{.Webhook.ProductPath}}" placeholder="object.metadata.product">
+        </label>
+      </div>
+      <label>Вебинар по умолчанию <span class="muted">(если товар не найден в маппинге)</span>
+        <select name="default_webinar_id">
+          <option value="">— не задан —</option>
+          {{$def := .DefaultID}}
+          {{range .Webinars}}
+          <option value="{{.ID}}" {{if eq .ID $def}}selected{{end}}>{{.Title}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>Маппинг: товар → вебинар <span class="muted">(по строке: id_товара = slug_вебинара)</span>
+        <textarea name="products" rows="5" class="mono" placeholder="webinar-pro = osenniy-vebinar&#10;webinar-vip = vip-vebinar">{{.Webhook.ProductsText}}</textarea>
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button class="btn btn-danger" type="submit" formaction="/admin/webhooks/{{.Webhook.ID}}/delete" data-confirm="Удалить вебхук?">Удалить</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2 class="card-title">Пресеты путей</h2>
+      <div class="preset-list">
+        {{range .Presets}}
+        <button type="button" class="preset" data-email="{{.EmailPath}}" data-product="{{.ProductPath}}" data-sample="{{.Sample}}">{{.Name}}</button>
+        {{end}}
+      </div>
+      <p class="muted small">Пресет заполняет пути и тестовый payload ниже. Проверьте, что пути соответствуют вашим настройкам в платёжной системе.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Тестовый запрос</h2>
+      {{if .TestResult}}<pre class="test-result">{{.TestResult}}</pre>{{end}}
+      <form method="post" action="/admin/webhooks/{{.Webhook.ID}}/test">
+        <label>Payload (JSON)
+          <textarea name="payload" id="test-payload" rows="8" class="mono" required>{"email":"client@example.com","product_id":"webinar-pro"}</textarea>
+        </label>
+        <button class="btn" type="submit">Отправить тест (не требует секрета, регистрирует по-настоящему)</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{{template "admin_foot"}}

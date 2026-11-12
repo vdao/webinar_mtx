@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Webinar.Title}}</title>
+{{template "css"}}{{template "favicon"}}
+</head>
+<body class="dark watch-page">
+<header class="watch-top">
+  <div class="watch-title">
+    <h1>{{.Webinar.Title}}</h1>
+    <span id="stream-status" class="badge badge-live is-wait">Подключение…</span>
+  </div>
+  <div class="watch-user">
+    <span class="muted">{{.Email}}</span>
+    <form method="post" action="/w/{{.Webinar.Slug}}/exit">
+      <button class="btn btn-ghost btn-sm" type="submit">Выйти</button>
+    </form>
+  </div>
+</header>
+
+<main class="watch-main">
+  <div class="player" id="player">
+    <video id="video" autoplay playsinline></video>
+    <div class="player-overlay" id="player-overlay">
+      <div class="spinner" id="player-spinner"></div>
+      <div class="player-msg" id="player-msg">Ждём начала эфира…</div>
+    </div>
+  </div>
+  <div class="watch-bar">
+    <button id="btn-mute" class="btn btn-ghost" type="button" hidden>Включить звук 🔇</button>
+    <span class="muted small">Если видео тормозит — проверьте интернет; плеер переподключится автоматически.</span>
+  </div>
+</main>
+
+<script>
+  window.WHEP_URL = "{{.WhepURL}}";
+  window.WEBINAR_STATUS = "{{.Webinar.Status}}";
+</script>
+<script src="/static/player.js"></script>
+</body>
+</html>

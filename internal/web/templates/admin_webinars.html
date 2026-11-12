@@ -1,0 +1,44 @@
+{{template "admin_head" .}}
+{{template "flash" .Flash}}
+
+<div class="page-head">
+  <h1>Вебинары</h1>
+</div>
+
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr><th>Название</th><th>Комната</th><th>Статус</th><th>Начало</th><th class="num">Участники</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Webinars}}
+      <tr>
+        <td><a class="row-title" href="/admin/webinars/{{.ID}}">{{.Title}}</a>
+          <div class="muted small">/{{.Slug}}</div></td>
+        <td><a class="room-link" href="/w/{{.Slug}}" target="_blank">/w/{{.Slug}} ↗</a></td>
+        <td><span class="badge badge-{{.Status}}">{{statuslabel .Status}}</span></td>
+        <td class="muted">{{fmttime .ScheduledAt}}</td>
+        <td class="num">{{index $.Counts .ID}}</td>
+        <td class="actions">
+          <a class="btn btn-sm" href="/admin/webinars/{{.ID}}">Настроить</a>
+          <a class="btn btn-sm" href="/admin/webinars/{{.ID}}/participants">Участники</a>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" class="empty">Пока нет ни одного вебинара — создайте первый ниже</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Новый вебинар</h2>
+  <form method="post" action="/admin/webinars" class="form-row">
+    <input type="text" name="title" placeholder="Название вебинара" required class="grow">
+    <input type="text" name="slug" placeholder="адрес комнаты (необязательно)">
+    <button class="btn btn-primary" type="submit">Создать</button>
+  </form>
+  <p class="muted small">Slug можно оставить пустым — сгенерируется автоматически. Stream key для трансляции выдаётся сразу после создания.</p>
+</div>
+
+{{template "admin_foot"}}

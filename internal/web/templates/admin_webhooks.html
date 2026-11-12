@@ -1,0 +1,38 @@
+{{template "admin_head" .}}
+{{template "flash" .Flash}}
+
+<div class="page-head">
+  <h1>Вебхуки</h1>
+</div>
+
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr><th>Название</th><th>URL</th><th>Вебинар по умолчанию</th><th>Состояние</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Webhooks}}
+      <tr>
+        <td><a class="row-title" href="/admin/webhooks/{{.ID}}">{{.Name}}</a></td>
+        <td class="mono small">{{$.AppURL}}/hooks/{{.ID}}</td>
+        <td>{{if .DefaultWebinarID}}{{index $.Titles .DefaultWebinarID}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td>{{if .IsActive}}<span class="badge badge-live">Активен</span>{{else}}<span class="badge badge-draft">Выключен</span>{{end}}</td>
+        <td class="actions"><a class="btn btn-sm" href="/admin/webhooks/{{.ID}}">Настроить</a></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="empty">Вебхуков пока нет — создайте первый ниже</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Новый вебхук</h2>
+  <form method="post" action="/admin/webhooks" class="form-row">
+    <input type="text" name="name" placeholder="Например: ЮKassa — осенние вебинары" required class="grow">
+    <button class="btn btn-primary" type="submit">Создать</button>
+  </form>
+  <p class="muted small">Вебхук принимает уведомления платёжной системы (JSON или form-encoded) и автоматически регистрирует оплативших на нужный вебинар.</p>
+</div>
+
+{{template "admin_foot"}}

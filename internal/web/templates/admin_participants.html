@@ -1,0 +1,76 @@
+{{template "admin_head" .}}
+{{template "flash" .Flash}}
+
+<div class="page-head">
+  <div>
+    <div class="breadcrumbs"><a href="/admin/webinars">Вебинары</a> / <a href="/admin/webinars/{{.Webinar.ID}}">{{.Webinar.Title}}</a> / Участники</div>
+    <h1>Участники <span class="muted h1-sub">всего {{.Total}}</span></h1>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn" href="/admin/webinars/{{.Webinar.ID}}/participants/export">Экспорт CSV</a>
+  </div>
+</div>
+
+{{if .ImportStats}}
+<div class="card card-accent">
+  <b>Импорт завершён:</b> добавлено {{.ImportStats.added}}, уже было {{.ImportStats.dups}}, пропущено (некорректные строки) {{.ImportStats.bad}}.
+</div>
+{{end}}
+
+<div class="grid-2">
+  <div class="card">
+    <h2 class="card-title">Добавить вручную</h2>
+    <form method="post" action="/admin/webinars/{{.Webinar.ID}}/participants" class="form-row">
+      <input type="email" name="email" placeholder="email@example.com" required class="grow">
+      <input type="text" name="name" placeholder="Имя (необязательно)">
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Импорт CSV</h2>
+    <form method="post" action="/admin/webinars/{{.Webinar.ID}}/participants/import" enctype="multipart/form-data" class="form-row">
+      <input type="file" name="file" accept=".csv,text/csv,text/plain" required class="grow">
+      <button class="btn btn-primary" type="submit">Импортировать</button>
+    </form>
+    <p class="muted small">Формат: колонка с email (+ необязательные колонки имя/имя). Разделитель — запятая или точка с запятой; строка заголовков определяется автоматически.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get" action="/admin/webinars/{{.Webinar.ID}}/participants" class="form-row">
+    <input type="search" name="q" value="{{.Query}}" placeholder="Поиск по email или имени" class="grow">
+    <button class="btn" type="submit">Найти</button>
+    {{if .Query}}<a class="btn btn-ghost" href="/admin/webinars/{{.Webinar.ID}}/participants">Сброс</a>{{end}}
+  </form>
+
+  <table class="table">
+    <thead>
+      <tr><th>Email</th><th>Имя</th><th>Источник</th><th>Статус</th><th>Добавлен</th><th>Был онлайн</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Participants}}
+      <tr class="{{if eq .Status "blocked"}}row-blocked{{end}}">
+        <td class="mono">{{.Email}}</td>
+        <td>{{.Name}}</td>
+        <td><span class="badge badge-src-{{.Source}}">{{sourcelabel .Source}}</span></td>
+        <td>{{if eq .Status "blocked"}}<span class="badge badge-blocked">Заблокирован</span>{{else}}<span class="badge badge-active-part">Активен</span>{{end}}</td>
+        <td class="muted">{{.CreatedAt.Local.Format "02.01.2006 15:04"}}</td>
+        <td class="muted">{{if .LastSeenAt}}{{.LastSeenAt.Local.Format "02.01.2006 15:04"}}{{else}}—{{end}}</td>
+        <td class="actions">
+          {{if eq .Status "blocked"}}
+          <form method="post" action="/admin/participants/{{.ID}}/status"><input type="hidden" name="status" value="active"><button class="btn btn-sm" type="submit">Разблокировать</button></form>
+          {{else}}
+          <form method="post" action="/admin/participants/{{.ID}}/status"><input type="hidden" name="status" value="blocked"><button class="btn btn-sm" type="submit">Заблокировать</button></form>
+          {{end}}
+          <form method="post" action="/admin/participants/{{.ID}}/delete"><button class="btn btn-sm btn-danger-ghost" type="submit" data-confirm="Удалить участника?">Удалить</button></form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="7" class="empty">{{if .Query}}Ничего не найдено{{else}}Список пуст — добавьте участников вручную или импортируйте CSV{{end}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+{{template "admin_foot"}}

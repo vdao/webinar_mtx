@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход в админку — Вебинары</title>
+{{template "css"}}{{template "favicon"}}
+</head>
+<body class="center-page">
+<div class="card auth-card">
+  <h1 class="auth-title"><span class="brand-dot"></span>Вебинары</h1>
+  <p class="muted">Панель управления вебинарами</p>
+  {{template "flash" .Flash}}
+  <form method="post" action="/admin/login">
+    <label>Email
+      <input type="email" name="email" required autofocus autocomplete="username">
+    </label>
+    <label>Пароль
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button class="btn btn-primary btn-block" type="submit">Войти</button>
+  </form>
+</div>
+</body>
+</html>

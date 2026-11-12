@@ -1,0 +1,37 @@
+{{define "css"}}<link rel="stylesheet" href="/static/app.css">{{end}}
+{{define "favicon"}}<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎥</text></svg>">{{end}}
+
+{{define "flash"}}
+{{if .ok}}<div class="flash flash-ok">{{.ok}}</div>{{end}}
+{{if .err}}<div class="flash flash-err">{{.err}}</div>{{end}}
+{{end}}
+
+{{define "admin_head"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — Вебинары</title>
+{{template "css"}}{{template "favicon"}}
+</head>
+<body class="admin">
+<header class="topbar">
+  <a class="brand" href="/admin/webinars"><span class="brand-dot"></span>Вебинары</a>
+  <nav>
+    <a href="/admin/webinars" {{if eq .Active "webinars"}}class="active"{{end}}>Вебинары</a>
+    <a href="/admin/webhooks" {{if eq .Active "webhooks"}}class="active"{{end}}>Вебхуки</a>
+  </nav>
+  <form method="post" action="/admin/logout" class="topbar-right">
+    <button class="btn btn-ghost btn-sm" type="submit">Выйти</button>
+  </form>
+</header>
+<main class="container">
+{{end}}
+
+{{define "admin_foot"}}
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>
+{{end}}

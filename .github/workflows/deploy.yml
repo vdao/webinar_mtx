@@ -1,0 +1,46 @@
+name: deploy
+
+# Автодеплой на сервер по SSH при выходе релиз-тега (v*) или вручную.
+#
+# Требуемые настройки репозитория:
+#   Variables (Settings → Secrets and variables → Actions → Variables):
+#     DEPLOY_HOST  — адрес сервера (например, 203.0.113.10); без переменной деплой пропускается
+#   Secrets:
+#     DEPLOY_USER  — пользователь SSH (по умолчанию root)
+#     DEPLOY_KEY   — приватный SSH-ключ
+#     DEPLOY_PATH  — путь к каталогу с docker-compose.yml (по умолчанию /opt/webinar_mtx)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Skip when not configured
+        if: ${{ vars.DEPLOY_HOST == '' }}
+        run: echo "DEPLOY_HOST не задан — пропуск деплоя (это нормально, если деплой не нужен)." >&2
+
+      - name: Deploy over SSH
+        if: ${{ vars.DEPLOY_HOST != '' }}
+        env:
+          SSH_HOST: ${{ vars.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+            "${SSH_USER:-root}@$SSH_HOST" \
+            "set -e
+             cd \"\${DEPLOY_PATH:-/opt/webinar_mtx}\"
+             docker compose pull app
+             docker compose up -d --remove-orphans
+             docker image prune -f"

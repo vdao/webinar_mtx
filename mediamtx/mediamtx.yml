@@ -1,0 +1,45 @@
+# MediaMTX configuration for the webinar stack.
+# Docs: https://mediamtx.org
+# Overridable per deployment via MTX_* env vars in docker-compose.yml.
+
+logLevel: warn
+
+# REST API: the app reads live viewer counts from it (container-internal only).
+api: yes
+apiAddress: :9997
+
+# Every publish/read goes through the app for authorization:
+#   publish — stream key must match a webinar in the database;
+#   read    — a valid viewer session token is required.
+authMethod: http
+authHTTPAddress: http://app:8080/internal/mtx/auth
+authHTTPExclude:
+  - action: api
+
+# ---- ingest protocols ----
+rtmp: yes
+rtmpAddress: :1935
+rtsp: no
+srt: no
+
+# ---- delivery ----
+hls: no
+
+# WebRTC (WHEP): sub-second latency playback in the browser.
+# HTTP/WHEP on 8889; ICE over UDP and TCP both on 8189 (TCP covers browsers
+# behind restrictive NATs/firewalls, UDP gives the lowest latency).
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcAllowOrigins: ["*"]
+# Public host/IP candidates are injected via MTX_WEBRTCADDITIONALHOSTS.
+
+moq: no
+webrtcAdditionalHosts: []
+
+# Paths are created on demand (w/{stream-key}); access is gated by the
+# external authentication above, not by path listing.
+paths:
+  all_others:

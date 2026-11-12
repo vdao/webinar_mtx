@@ -1,0 +1,66 @@
+services:
+  app:
+    image: ghcr.io/vdao/webinar_mtx:latest
+    build: .
+    restart: unless-stopped
+    environment:
+      LISTEN: ":8080"
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-webinar}:${POSTGRES_PASSWORD:-webinar}@db:5432/${POSTGRES_DB:-webinar}?sslmode=disable
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+      APP_SECRET: ${APP_SECRET:-}
+      # direct: вход по факту email в списке; code: одноразовый код на почту (нужен SMTP)
+      ACCESS_MODE: ${ACCESS_MODE:-direct}
+      SESSION_TTL: ${SESSION_TTL:-12h}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      MTX_API_URL: http://mediamtx:9997
+      MTX_WHEP_URL: http://mediamtx:8889
+      RTMP_URL: ${RTMP_URL:-rtmp://localhost:1935/w}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-webinar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webinar}
+      POSTGRES_DB: ${POSTGRES_DB:-webinar}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-webinar} -d ${POSTGRES_DB:-webinar}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      # Публичный адрес сервера для ICE-кандидатов WebRTC (домен или IP хоста).
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_HOST:-localhost}
+    ports:
+      - "1935:1935"     # RTMP ingest (OBS)
+      - "8889:8889"     # WHEP (HTTP signaling)
+      - "8189:8189/tcp" # WebRTC ICE over TCP
+      - "8189:8189/udp" # WebRTC ICE over UDP (минимальная задержка)
+
+volumes:
+  pgdata:

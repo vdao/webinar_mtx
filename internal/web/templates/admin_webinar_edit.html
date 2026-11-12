@@ -1,0 +1,75 @@
+{{template "admin_head" .}}
+{{template "flash" .Flash}}
+
+<div class="page-head">
+  <div>
+    <div class="breadcrumbs"><a href="/admin/webinars">Вебинары</a> / {{.Webinar.Title}}</div>
+    <h1>{{.Webinar.Title}} <span class="badge badge-{{.Webinar.Status}}">{{statuslabel .Webinar.Status}}</span></h1>
+  </div>
+  <div class="page-head-actions">
+    <span id="live-stats" class="live-stats muted">…</span>
+    <a class="btn" href="/admin/webinars/{{.Webinar.ID}}/participants">Участники ({{.Total}})</a>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2 class="card-title">Настройки</h2>
+    <form method="post" action="/admin/webinars/{{.Webinar.ID}}">
+      <label>Название
+        <input type="text" name="title" value="{{.Webinar.Title}}" required>
+      </label>
+      <label>Описание <span class="muted">(видно участникам на странице входа)</span>
+        <textarea name="description" rows="3">{{.Webinar.Description}}</textarea>
+      </label>
+      <div class="form-row">
+        <label class="grow">Адрес комнаты (slug)
+          <input type="text" name="slug" value="{{.Webinar.Slug}}" pattern="[a-zA-Z0-9_-]{3,64}" title="3–64 символа: латиница, цифры, дефис">
+        </label>
+        <label>Статус
+          <select name="status">
+            {{$cur := .Webinar.Status}}
+            {{range .Statuses}}
+            <option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{statuslabel .}}</option>
+            {{end}}
+          </select>
+        </label>
+      </div>
+      <label>Начало (план)
+        <input type="datetime-local" name="scheduled_at" value="{{if .Webinar.ScheduledAt}}{{.Webinar.ScheduledAt.Local.Format "2006-01-02T15:04"}}{{end}}">
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button class="btn btn-danger" type="submit" formaction="/admin/webinars/{{.Webinar.ID}}/delete"
+          data-confirm="Удалить вебинар вместе с участниками?">Удалить</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2 class="card-title">Трансляция (OBS / кодировщик)</h2>
+      <div class="field">
+        <div class="field-label">Сервер (RTMP)</div>
+        <div class="copy-line"><code id="rtmp-url">{{.RTMPURL}}</code><button class="btn btn-sm" data-copy="#rtmp-url" type="button">Копировать</button></div>
+      </div>
+      <div class="field">
+        <div class="field-label">Ключ потока</div>
+        <div class="copy-line"><code id="stream-key">{{.Webinar.StreamKey}}</code><button class="btn btn-sm" data-copy="#stream-key" type="button">Копировать</button></div>
+      </div>
+      <p class="muted small">В OBS: Настройки → Вещание → Сервис «Пользовательский», вставьте сервер и ключ. Начните трансляцию — статус зрителей обновится автоматически.</p>
+      <form method="post" action="/admin/webinars/{{.Webinar.ID}}/key">
+        <button class="btn btn-sm" type="submit" data-confirm="Сгенерировать новый ключ? Прежний перестанет работать.">Перегенерировать ключ</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Ссылка для участников</h2>
+      <div class="copy-line"><code id="room-url">{{.RoomURL}}</code><button class="btn btn-sm" data-copy="#room-url" type="button">Копировать</button></div>
+      <p class="muted small">Доступ открыт только зарегистрированным email. Статус «В эфире» включает плеер, но подключиться можно и раньше — плеер дождётся начала.</p>
+    </div>
+  </div>
+</div>
+
+<script>window.WEBINAR_ID = "{{.Webinar.ID}}";</script>
+{{template "admin_foot"}}

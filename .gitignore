@@ -1,0 +1,13 @@
+# binary
+/server
+/bin/
+
+# local env & runtime
+.env
+*.local.yml
+data/
+
+# editor
+.DS_Store
+*.swp
+.zcode/
