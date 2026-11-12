@@ -38,6 +38,8 @@ services:
       S3_PREFIX: ${S3_PREFIX:-recordings}
       RECORDINGS_DIR: /recordings
     volumes:
+      # Записи пишет только MediaMTX (тот же том у сервиса mediamtx — rw);
+      # приложение лишь читает файлы для загрузки в S3, поэтому read-only.
       - recordings:/recordings:ro
     ports:
       - "${APP_PORT:-8080}:8080"
