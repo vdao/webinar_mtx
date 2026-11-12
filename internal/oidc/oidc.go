@@ -80,41 +80,46 @@ func (m *Manager) Begin() (AuthRequest, string, error) {
 	return req, url, nil
 }
 
+// Identity is the verified user info extracted from the ID token.
+type Identity struct {
+	Email  string   // best-effort, for display and logs
+	Groups []string // claim "groups": admin access is granted by group membership
+}
+
 // Complete exchanges the code, verifies the ID token and returns the
-// authenticated email.
-func (m *Manager) Complete(ctx context.Context, req AuthRequest, code string) (string, error) {
+// authenticated identity (email + groups claims).
+func (m *Manager) Complete(ctx context.Context, req AuthRequest, code string) (Identity, error) {
+	var ident Identity
 	tok, err := m.oauth.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", req.PKCE))
 	if err != nil {
-		return "", fmt.Errorf("code exchange: %w", err)
+		return ident, fmt.Errorf("code exchange: %w", err)
 	}
 	rawID, ok := tok.Extra("id_token").(string)
 	if !ok || rawID == "" {
-		return "", fmt.Errorf("no id_token in the token response")
+		return ident, fmt.Errorf("no id_token in the token response")
 	}
 	idToken, err := m.verifier.Verify(ctx, rawID)
 	if err != nil {
-		return "", fmt.Errorf("verify id_token: %w", err)
+		return ident, fmt.Errorf("verify id_token: %w", err)
 	}
 	if idToken.Nonce != req.Nonce {
-		return "", fmt.Errorf("nonce mismatch")
+		return ident, fmt.Errorf("nonce mismatch")
 	}
 	var claims struct {
-		Email             string `json:"email"`
-		PreferredUsername string `json:"preferred_username"`
-		Sub               string `json:"sub"`
+		Email             string   `json:"email"`
+		PreferredUsername string   `json:"preferred_username"`
+		Groups            []string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return "", err
+		return ident, err
 	}
-	email := strings.ToLower(strings.TrimSpace(claims.Email))
-	if email == "" {
-		email = strings.ToLower(strings.TrimSpace(claims.PreferredUsername))
+	ident.Groups = claims.Groups
+	ident.Email = strings.ToLower(strings.TrimSpace(claims.Email))
+	if ident.Email == "" {
+		ident.Email = strings.ToLower(strings.TrimSpace(claims.PreferredUsername))
 	}
-	if email == "" || !strings.Contains(email, "@") {
-		return "", fmt.Errorf("token carries no usable email claim")
-	}
-	return email, nil
+	return ident, nil
 }
 
 func randomToken() string {

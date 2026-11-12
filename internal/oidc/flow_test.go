@@ -21,10 +21,11 @@ import (
 // fakeIdP is a minimal OIDC provider for tests: discovery, JWKS and a token
 // endpoint issuing a signed ID token.
 type fakeIdP struct {
-	srv   *httptest.Server
-	key   *rsa.PrivateKey
-	email string
-	nonce string // nonce expected in the issued token
+	srv    *httptest.Server
+	key    *rsa.PrivateKey
+	email  string
+	groups []string
+	nonce  string // nonce expected in the issued token
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -33,7 +34,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &fakeIdP{key: key, email: "admin@example.com"}
+	p := &fakeIdP{key: key, email: "admin@example.com", groups: []string{"users", "admin"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -69,12 +70,13 @@ func (p *fakeIdP) signIDToken(t *testing.T) string {
 	t.Helper()
 	header := base64URL(map[string]any{"alg": "RS256", "kid": "test-key", "typ": "JWT"})
 	claims := map[string]any{
-		"iss":   p.srv.URL,
-		"aud":   "cid",
-		"sub":   "u1",
-		"exp":   time.Now().Add(time.Hour).Unix(),
-		"iat":   time.Now().Unix(),
-		"email": p.email,
+		"iss":    p.srv.URL,
+		"aud":    "cid",
+		"sub":    "u1",
+		"exp":    time.Now().Add(time.Hour).Unix(),
+		"iat":    time.Now().Unix(),
+		"email":  p.email,
+		"groups": p.groups,
 	}
 	if p.nonce != "" {
 		claims["nonce"] = p.nonce
@@ -116,12 +118,26 @@ func TestManagerFlow(t *testing.T) {
 
 	// Happy path: the IdP embeds the correct nonce into the token.
 	idp.nonce = req.Nonce
-	email, err := m.Complete(context.Background(), req, "code123")
+	ident, err := m.Complete(context.Background(), req, "code123")
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if email != "admin@example.com" {
-		t.Fatalf("email = %q", email)
+	if ident.Email != "admin@example.com" {
+		t.Fatalf("email = %q", ident.Email)
+	}
+	if len(ident.Groups) != 2 || ident.Groups[0] != "users" || ident.Groups[1] != "admin" {
+		t.Fatalf("groups = %v", ident.Groups)
+	}
+
+	// A token without the admin group still verifies — access control is
+	// the caller's decision (see web.adminAllowed).
+	idp.groups = nil
+	ident, err = m.Complete(context.Background(), req, "code123")
+	if err != nil {
+		t.Fatalf("Complete without groups: %v", err)
+	}
+	if ident.Groups != nil {
+		t.Fatalf("groups = %v, want nil", ident.Groups)
 	}
 
 	// Replay with a wrong nonce must fail.

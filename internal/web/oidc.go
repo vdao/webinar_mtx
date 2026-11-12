@@ -126,25 +126,30 @@ func (s *Server) adminOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: oidcCookieName, Value: "", Path: "/admin", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode})
 
-	email, err := s.OIDC.Complete(r.Context(), oidc.AuthRequest{
+	ident, err := s.OIDC.Complete(r.Context(), oidc.AuthRequest{
 		State: stored.State, Nonce: stored.Nonce, PKCE: stored.PKCE,
 	}, code)
 	if err != nil {
 		flashRedirect(w, r, "/admin/login", "badlogin", true)
 		return
 	}
-	if !adminAllowed(s.Cfg.AdminEmails, email) {
+	if !adminAllowed(ident.Groups, s.Cfg.OIDC.AdminGroup) {
+		who := ident.Email
+		if who == "" {
+			who = "пользователь"
+		}
 		s.renderError(w, r, http.StatusForbidden,
-			"Пользователь "+email+" не имеет доступа к админке.")
+			who+" не состоит в группе «"+s.Cfg.OIDC.AdminGroup+"» — доступа к админке нет.")
 		return
 	}
 	auth.SetAdminCookie(w, r, s.Cfg.AppSecret)
 	http.Redirect(w, r, "/admin/webinars", http.StatusSeeOther)
 }
 
-func adminAllowed(allowlist []string, email string) bool {
-	for _, e := range allowlist {
-		if e == email {
+// adminAllowed reports whether the token groups grant admin access.
+func adminAllowed(groups []string, adminGroup string) bool {
+	for _, g := range groups {
+		if g == adminGroup {
 			return true
 		}
 	}

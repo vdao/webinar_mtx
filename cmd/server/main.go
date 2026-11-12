@@ -57,7 +57,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("oidc: %v", err)
 		}
-		log.Printf("oidc: admin login via %s, allowed: %v", cfg.OIDC.IssuerURL, cfg.AdminEmails)
+		log.Printf("oidc: admin login via %s, access by group %q", cfg.OIDC.IssuerURL, cfg.OIDC.AdminGroup)
 	}
 
 	// S3 recording publishing (optional).

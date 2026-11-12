@@ -26,21 +26,12 @@ func TestLoadOIDCAndS3(t *testing.T) {
 	if cfg.AdminEmail != "admin@example.com" {
 		t.Errorf("AdminEmail = %q", cfg.AdminEmail)
 	}
-	// allowlist defaults to admin email
-	if len(cfg.AdminEmails) != 1 || cfg.AdminEmails[0] != "admin@example.com" {
-		t.Errorf("AdminEmails = %v", cfg.AdminEmails)
+	// default admin group
+	if cfg.OIDC.AdminGroup != "admin" {
+		t.Errorf("default AdminGroup = %q, want admin", cfg.OIDC.AdminGroup)
 	}
 
-	t.Setenv("ADMIN_EMAILS", "A@B.ru, c@d.ru ,")
-	cfg, err = Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.AdminEmails) != 2 || cfg.AdminEmails[0] != "a@b.ru" || cfg.AdminEmails[1] != "c@d.ru" {
-		t.Errorf("AdminEmails = %v", cfg.AdminEmails)
-	}
-
-	// OIDC requires issuer and client id
+	t.Setenv("OIDC_ADMIN_GROUP", "webinar-admins")
 	t.Setenv("OIDC_ENABLED", "true")
 	if _, err := Load(); err == nil {
 		t.Error("OIDC without issuer/client_id must fail")
@@ -53,6 +44,9 @@ func TestLoadOIDCAndS3(t *testing.T) {
 	}
 	if !cfg.OIDC.Enabled || cfg.OIDC.IssuerURL != "https://idp.example.com/realm/main" {
 		t.Errorf("OIDC = %+v", cfg.OIDC)
+	}
+	if cfg.OIDC.AdminGroup != "webinar-admins" {
+		t.Errorf("AdminGroup = %q, want webinar-admins", cfg.OIDC.AdminGroup)
 	}
 	if want := "http://localhost:8080/admin/oidc/callback"; cfg.OIDC.RedirectURL != want {
 		t.Errorf("RedirectURL = %q, want %q", cfg.OIDC.RedirectURL, want)

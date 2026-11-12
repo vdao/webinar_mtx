@@ -31,15 +31,20 @@ func TestOIDCCookieRoundtrip(t *testing.T) {
 	}
 }
 
-func TestAdminAllowed(t *testing.T) {
-	list := []string{"a@x.com", "b@y.ru"}
-	if !adminAllowed(list, "a@x.com") {
-		t.Error("member not allowed")
+func TestAdminAllowedByGroup(t *testing.T) {
+	if !adminAllowed([]string{"users", "admin", "ops"}, "admin") {
+		t.Error("member of the admin group must be allowed")
 	}
-	if adminAllowed(list, "c@z.com") {
-		t.Error("stranger allowed")
+	if adminAllowed([]string{"users", "ops"}, "admin") {
+		t.Error("stranger must be denied")
 	}
-	if adminAllowed(list, "A@X.COM") {
-		t.Error("emails must be matched case-sensitively after lowercasing")
+	if adminAllowed(nil, "admin") {
+		t.Error("no groups at all must be denied")
+	}
+	if adminAllowed([]string{"Admin"}, "admin") {
+		t.Error("group names must match exactly (case-sensitive)")
+	}
+	if !adminAllowed([]string{"webinar-admins"}, "webinar-admins") {
+		t.Error("custom group name must work")
 	}
 }

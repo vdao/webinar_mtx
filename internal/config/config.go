@@ -28,6 +28,7 @@ type OIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string // defaults to {APP_URL}/admin/oidc/callback
+	AdminGroup   string // claim "groups" entry that grants admin access; default "admin"
 }
 
 // S3Config holds settings of an S3-compatible storage for webinar recordings.
@@ -52,9 +53,8 @@ type Config struct {
 	Listen        string // HTTP listen address
 	AppURL        string // public base URL of the app (used for links in emails and admin)
 	DatabaseURL   string
-	AdminEmail    string
+	AdminEmail    string // login for the password admin login (when OIDC is off)
 	AdminPassword string
-	AdminEmails   []string      // allowlist for OIDC admin login; defaults to AdminEmail
 	AppSecret     []byte        // HMAC key for signed cookies
 	AccessMode    string        // "direct" (email in list is enough) or "code" (one-time email code)
 	SessionTTL    time.Duration // participant session lifetime
@@ -94,6 +94,7 @@ func Load() (*Config, error) {
 			ClientID:     os.Getenv("OIDC_CLIENT_ID"),
 			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 			RedirectURL:  getenv("OIDC_REDIRECT_URL", strings.TrimRight(getenv("APP_URL", "http://localhost:8080"), "/")+"/admin/oidc/callback"),
+			AdminGroup:   strings.TrimSpace(getenv("OIDC_ADMIN_GROUP", "admin")),
 		},
 		MtxAPIURL:     getenv("MTX_API_URL", "http://mediamtx:9997"),
 		MtxWHEPURL:    getenv("MTX_WHEP_URL", "http://mediamtx:8889"),
@@ -118,20 +119,11 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("OIDC_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
 		}
 	}
+	if c.OIDC.AdminGroup == "" {
+		c.OIDC.AdminGroup = "admin"
+	}
 	if c.S3.Prefix == "" {
 		c.S3.Prefix = "recordings"
-	}
-
-	// Admin allowlist: ADMIN_EMAILS overrides ADMIN_EMAIL (which stays the fallback).
-	if v := os.Getenv("ADMIN_EMAILS"); v != "" {
-		for _, part := range strings.Split(v, ",") {
-			if e := strings.ToLower(strings.TrimSpace(part)); e != "" {
-				c.AdminEmails = append(c.AdminEmails, e)
-			}
-		}
-	}
-	if len(c.AdminEmails) == 0 {
-		c.AdminEmails = []string{c.AdminEmail}
 	}
 
 	switch c.AccessMode {

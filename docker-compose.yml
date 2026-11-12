@@ -9,8 +9,6 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-webinar}:${POSTGRES_PASSWORD:-webinar}@db:5432/${POSTGRES_DB:-webinar}?sslmode=disable
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
-      # Разрешённые в админке email при OIDC (через запятую); по умолчанию ADMIN_EMAIL
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       APP_SECRET: ${APP_SECRET:-}
       # direct: вход по факту email в списке; code: одноразовый код на почту (нужен SMTP)
       ACCESS_MODE: ${ACCESS_MODE:-direct}
@@ -26,6 +24,8 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
+      # Группа из claim "groups", дающая доступ в админку (по умолчанию admin)
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-admin}
       MTX_API_URL: http://mediamtx:9997
       MTX_WHEP_URL: http://mediamtx:8889
       RTMP_URL: ${RTMP_URL:-rtmp://localhost:1935/w}
