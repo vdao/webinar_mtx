@@ -12,10 +12,13 @@ import (
 	"time"
 )
 
-// NotifyConfig holds the outgoing registration-notification webhook settings.
+// NotifyConfig holds outgoing webhook settings. Registrations and recording
+// publications are independent optional channels with their own endpoints.
 type NotifyConfig struct {
-	WebhookURL    string // POST target for registration events; empty disables notifications
-	WebhookSecret string // shared secret for the X-Webhook-Signature header (optional)
+	WebhookURL      string // POST target for participant.registered events; empty disables
+	WebhookSecret   string // shared secret for the X-Webhook-Signature header (optional)
+	RecordingURL    string // POST target for recording.published events; empty disables
+	RecordingSecret string
 }
 
 // OIDCConfig holds settings for protecting the admin panel with OIDC SSO.
@@ -75,8 +78,10 @@ func Load() (*Config, error) {
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		SessionTTL:    getduration("SESSION_TTL", 12*time.Hour),
 		Notify: NotifyConfig{
-			WebhookURL:    strings.TrimSpace(os.Getenv("NOTIFY_WEBHOOK_URL")),
-			WebhookSecret: os.Getenv("NOTIFY_WEBHOOK_SECRET"),
+			WebhookURL:      strings.TrimSpace(os.Getenv("NOTIFY_WEBHOOK_URL")),
+			WebhookSecret:   os.Getenv("NOTIFY_WEBHOOK_SECRET"),
+			RecordingURL:    strings.TrimSpace(os.Getenv("NOTIFY_RECORDING_URL")),
+			RecordingSecret: os.Getenv("NOTIFY_RECORDING_SECRET"),
 		},
 		OIDC: OIDCConfig{
 			Enabled:      strings.EqualFold(getenv("OIDC_ENABLED", "false"), "true"),

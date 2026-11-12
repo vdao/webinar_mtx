@@ -14,6 +14,8 @@ services:
       # Исходящий вебхук уведомлений о регистрациях (для CRM/рассыльщика)
       NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
       NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
+      NOTIFY_RECORDING_URL: ${NOTIFY_RECORDING_URL:-}
+      NOTIFY_RECORDING_SECRET: ${NOTIFY_RECORDING_SECRET:-}
       # OIDC SSO для админки (true — парольный вход отключается)
       OIDC_ENABLED: ${OIDC_ENABLED:-false}
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}

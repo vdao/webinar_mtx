@@ -44,6 +44,11 @@ type Worker struct {
 	S3         *s3.Client
 	PublishNow chan string // webinar ids pushed by the admin button
 
+	// OnPublished, when set, is invoked once per successfully published
+	// recording with the public download URLs (wired to outgoing
+	// notifications in main). Errors are logged by the caller, not the worker.
+	OnPublished func(ctx context.Context, wb *model.Webinar, urls []string)
+
 	mu         sync.Mutex
 	offline    map[string]time.Time            // webinar id → offline since
 	lastFail   map[string]time.Time            // webinar id → last failed attempt
@@ -242,6 +247,9 @@ func (w *Worker) publish(ctx context.Context, wb *model.Webinar, forced bool) er
 		return err
 	}
 	log.Printf("recorder: published %d segment(s) of %s", len(files), wb.Slug)
+	if w.OnPublished != nil {
+		w.OnPublished(ctx, wb, urls)
+	}
 	return nil
 }
 

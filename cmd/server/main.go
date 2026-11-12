@@ -15,6 +15,7 @@ import (
 
 	"github.com/vdao/webinar_mtx/internal/config"
 	"github.com/vdao/webinar_mtx/internal/db"
+	"github.com/vdao/webinar_mtx/internal/model"
 	"github.com/vdao/webinar_mtx/internal/mtx"
 	"github.com/vdao/webinar_mtx/internal/oidc"
 	"github.com/vdao/webinar_mtx/internal/recorder"
@@ -73,10 +74,39 @@ func main() {
 		log.Println("s3: not configured, recording publishing disabled")
 	}
 
-	// Registration notification webhook (optional).
-	notifier := web.NewNotifier(cfg.Notify.WebhookURL, cfg.Notify.WebhookSecret)
+	// Outgoing webhook notifications (optional, independent channels).
+	notifier := web.NewNotifier(cfg.Notify)
 	if notifier != nil {
-		log.Printf("notify: registration events to %s", cfg.Notify.WebhookURL)
+		if cfg.Notify.WebhookURL != "" {
+			log.Printf("notify: registration events to %s", cfg.Notify.WebhookURL)
+		}
+		if cfg.Notify.RecordingURL != "" {
+			log.Printf("notify: recording events to %s", cfg.Notify.RecordingURL)
+		}
+	}
+
+	// When a recording goes public, notify every active participant.
+	if recWorker != nil {
+		st := store.New(sqlDB)
+		recWorker.OnPublished = func(ctx context.Context, wb *model.Webinar, urls []string) {
+			if notifier == nil {
+				return
+			}
+			participants, err := st.ListParticipants(ctx, wb.ID, "", 100000)
+			if err != nil {
+				log.Printf("notify: list participants of %s: %v", wb.Slug, err)
+				return
+			}
+			n := 0
+			for _, p := range participants {
+				if p.Status != model.ParticipantActive {
+					continue // blocked viewers must not receive the recording
+				}
+				notifier.NotifyRecording(wb, p, urls)
+				n++
+			}
+			log.Printf("notify: recording of %s queued for %d participant(s)", wb.Slug, n)
+		}
 	}
 
 	srv, err := web.New(cfg, store.New(sqlDB), mtx.New(cfg.MtxAPIURL), oidcManager, recWorker, notifier)
