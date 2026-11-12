@@ -32,6 +32,15 @@
     <button id="btn-mute" class="btn btn-ghost" type="button" hidden>Включить звук 🔇</button>
     <span class="muted small">Если видео тормозит — проверьте интернет; плеер переподключится автоматически.</span>
   </div>
+  {{if .RecordingOn}}
+  <div class="recording-box">
+    <div class="recording-title">📼 Запись вебинара</div>
+    {{range .RecordingURLs}}
+    <a class="btn btn-rec" href="{{.}}" target="_blank" rel="noopener">Скачать запись (MP4)</a>
+    {{end}}
+    <span class="muted small">Ссылка личная — не передавайте её третьим лицам.</span>
+  </div>
+  {{end}}
 </main>
 
 <script>

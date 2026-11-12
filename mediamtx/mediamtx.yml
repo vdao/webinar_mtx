@@ -41,5 +41,12 @@ webrtcAdditionalHosts: []
 
 # Paths are created on demand (w/{stream-key}); access is gated by the
 # external authentication above, not by path listing.
+#
+# Recording is disabled by default: when S3 is configured, the app enables it
+# per webinar path at runtime via the Control API
+# (POST /v3/config/paths/add/w/{stream-key} with record: yes) and uploads the
+# finished segments to the bucket itself. Segments land in /recordings/
+# (default recordPath ./recordings with WorkingDir /), shared with the app
+# container via the "recordings" volume.
 paths:
   all_others:

@@ -9,6 +9,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-webinar}:${POSTGRES_PASSWORD:-webinar}@db:5432/${POSTGRES_DB:-webinar}?sslmode=disable
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+      # Разрешённые в админке email при OIDC (через запятую); по умолчанию ADMIN_EMAIL
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       APP_SECRET: ${APP_SECRET:-}
       # direct: вход по факту email в списке; code: одноразовый код на почту (нужен SMTP)
       ACCESS_MODE: ${ACCESS_MODE:-direct}
@@ -18,9 +20,27 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # OIDC SSO для админки (true — парольный вход отключается)
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
       MTX_API_URL: http://mediamtx:9997
       MTX_WHEP_URL: http://mediamtx:8889
       RTMP_URL: ${RTMP_URL:-rtmp://localhost:1935/w}
+      # S3-хранилище записей (все поля обязательны для включения публикации)
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_SECURE: ${S3_SECURE:-true}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      S3_PREFIX: ${S3_PREFIX:-recordings}
+      RECORDINGS_DIR: /recordings
+    volumes:
+      - recordings:/recordings:ro
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
@@ -53,6 +73,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
     environment:
       # Публичный адрес сервера для ICE-кандидатов WebRTC (домен или IP хоста).
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_HOST:-localhost}
@@ -64,3 +85,4 @@ services:
 
 volumes:
   pgdata:
+  recordings:

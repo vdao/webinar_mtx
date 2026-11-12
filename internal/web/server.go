@@ -18,6 +18,7 @@ import (
 	"github.com/vdao/webinar_mtx/internal/mail"
 	"github.com/vdao/webinar_mtx/internal/model"
 	"github.com/vdao/webinar_mtx/internal/mtx"
+	"github.com/vdao/webinar_mtx/internal/oidc"
 	"github.com/vdao/webinar_mtx/internal/store"
 )
 
@@ -34,10 +35,20 @@ type Server struct {
 	AdminHash     []byte
 	CodeLimiter   *auth.Limiter
 	IPCodeLimiter *auth.Limiter
+
+	OIDC     *oidc.Manager    // nil when OIDC login is disabled
+	Recorder PublishRequester // nil when S3 recording publishing is disabled
+}
+
+// PublishRequester lets admin handlers ask the recorder worker to publish
+// a webinar recording right away.
+type PublishRequester interface {
+	RequestPublish(webinarID string) error
 }
 
 // New builds the server and parses templates.
-func New(cfg *config.Config, st *store.Store, mailer *mail.Sender, mtxClient *mtx.Client) (*Server, error) {
+func New(cfg *config.Config, st *store.Store, mailer *mail.Sender, mtxClient *mtx.Client,
+	oidcManager *oidc.Manager, recorder PublishRequester) (*Server, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -50,6 +61,8 @@ func New(cfg *config.Config, st *store.Store, mailer *mail.Sender, mtxClient *mt
 		AdminHash:     hash,
 		CodeLimiter:   auth.NewLimiter(5, 10*time.Minute), // per ip+email
 		IPCodeLimiter: auth.NewLimiter(30, time.Hour),     // per ip
+		OIDC:          oidcManager,
+		Recorder:      recorder,
 	}
 	if err := s.parseTemplates(); err != nil {
 		return nil, err
@@ -130,6 +143,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/login", s.adminLoginPage)
 	mux.HandleFunc("POST /admin/login", s.adminLogin)
 	mux.HandleFunc("POST /admin/logout", s.adminLogout)
+	mux.HandleFunc("GET /admin/oidc/start", s.adminOIDCStart)
+	mux.HandleFunc("GET /admin/oidc/callback", s.adminOIDCCallback)
 
 	mux.HandleFunc("GET /admin/webinars", s.requireAdmin(s.adminWebinars))
 	mux.HandleFunc("POST /admin/webinars", s.requireAdmin(s.adminWebinarCreate))
@@ -138,6 +153,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/webinars/{id}/delete", s.requireAdmin(s.adminWebinarDelete))
 	mux.HandleFunc("POST /admin/webinars/{id}/key", s.requireAdmin(s.adminWebinarRegenKey))
 	mux.HandleFunc("GET /admin/webinars/{id}/viewers", s.requireAdmin(s.adminWebinarViewers))
+	mux.HandleFunc("POST /admin/webinars/{id}/publish-record", s.requireAdmin(s.adminWebinarPublishRecord))
 
 	mux.HandleFunc("GET /admin/webinars/{id}/participants", s.requireAdmin(s.adminParticipants))
 	mux.HandleFunc("POST /admin/webinars/{id}/participants", s.requireAdmin(s.adminParticipantAdd))
@@ -180,20 +196,24 @@ func logRequests(next http.Handler) http.Handler {
 
 // flash maps flash codes from query params to human messages.
 var flashText = map[string]string{
-	"saved":        "Сохранено",
-	"deleted":      "Удалено",
-	"created":      "Создано",
-	"imported":     "Импорт завершён",
-	"key-regen":    "Новый ключ сгенерирован. Обновите настройки в OBS/кодировщике!",
-	"secret-regen": "Новый секрет сгенерирован. Обновите его в платёжной системе!",
-	"badlogin":     "Неверный email или пароль",
-	"notfound":     "Не найдено",
-	"duplicate":    "Такой slug или email уже существует",
-	"wrongcode":    "Неверный или истёкший код",
-	"notallowed":   "Доступ запрещён: email не зарегистрирован или заблокирован",
-	"rate":         "Слишком часто. Попробуйте позже",
-	"mailfail":     "Не удалось отправить письмо. Попробуйте позже",
-	"invalid":      "Проверьте правильность заполнения полей",
+	"saved":         "Сохранено",
+	"deleted":       "Удалено",
+	"created":       "Создано",
+	"imported":      "Импорт завершён",
+	"key-regen":     "Новый ключ сгенерирован. Обновите настройки в OBS/кодировщике!",
+	"secret-regen":  "Новый секрет сгенерирован. Обновите его в платёжной системе!",
+	"badlogin":      "Неверный email или пароль",
+	"notfound":      "Не найдено",
+	"duplicate":     "Такой slug или email уже существует",
+	"wrongcode":     "Неверный или истёкший код",
+	"notallowed":    "Доступ запрещён: email не зарегистрирован или заблокирован",
+	"rate":          "Слишком часто. Попробуйте позже",
+	"mailfail":      "Не удалось отправить письмо. Попробуйте позже",
+	"invalid":       "Проверьте правильность заполнения полей",
+	"record-busy":   "Эфир ещё идёт — запись можно опубликовать после окончания",
+	"record-none":   "Файлы записи не найдены",
+	"record-queued": "Публикация записи запущена",
+	"oidc-off":      "Парольный вход отключён: используется вход через SSO",
 }
 
 // render executes a template with common view fields.

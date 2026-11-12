@@ -21,6 +21,32 @@ type SMTPConfig struct {
 	From string // From address, defaults to User
 }
 
+// OIDCConfig holds settings for protecting the admin panel with OIDC SSO.
+type OIDCConfig struct {
+	Enabled      bool
+	IssuerURL    string // e.g. https://keycloak.example.com/realms/main
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string // defaults to {APP_URL}/admin/oidc/callback
+}
+
+// S3Config holds settings of an S3-compatible storage for webinar recordings.
+type S3Config struct {
+	Endpoint  string // host[:port], e.g. s3.amazonaws.com or storage.yandexcloud.net
+	Secure    bool   // use TLS to talk to the endpoint
+	Region    string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	PublicURL string // public base URL of the bucket, used to build download links
+	Prefix    string // key prefix inside the bucket, e.g. "recordings"
+}
+
+// Configured reports whether recording publishing is set up.
+func (s S3Config) Configured() bool {
+	return s.Endpoint != "" && s.Bucket != "" && s.AccessKey != "" && s.SecretKey != "" && s.PublicURL != ""
+}
+
 // Config is the full application configuration.
 type Config struct {
 	Listen        string // HTTP listen address
@@ -28,15 +54,20 @@ type Config struct {
 	DatabaseURL   string
 	AdminEmail    string
 	AdminPassword string
+	AdminEmails   []string      // allowlist for OIDC admin login; defaults to AdminEmail
 	AppSecret     []byte        // HMAC key for signed cookies
 	AccessMode    string        // "direct" (email in list is enough) or "code" (one-time email code)
 	SessionTTL    time.Duration // participant session lifetime
 	CodeTTL       time.Duration // one-time code lifetime
 	SMTP          SMTPConfig
+	OIDC          OIDCConfig
 
-	MtxAPIURL  string // MediaMTX REST API, e.g. http://mediamtx:9997
-	MtxWHEPURL string // MediaMTX WebRTC/WHEP base URL, e.g. http://mediamtx:8889
-	RTMPURL    string // public RTMP ingest URL shown to the host, e.g. rtmp://host:1935/w
+	MtxAPIURL     string // MediaMTX REST API, e.g. http://mediamtx:9997
+	MtxWHEPURL    string // MediaMTX WebRTC/WHEP base URL, e.g. http://mediamtx:8889
+	RTMPURL       string // public RTMP ingest URL shown to the host, e.g. rtmp://host:1935/w
+	RecordingsDir string // where MediaMTX recording files are visible to the app
+
+	S3 S3Config
 }
 
 // Load reads configuration from the environment and validates it.
@@ -57,12 +88,50 @@ func Load() (*Config, error) {
 			Pass: os.Getenv("SMTP_PASS"),
 			From: os.Getenv("SMTP_FROM"),
 		},
-		MtxAPIURL:  getenv("MTX_API_URL", "http://mediamtx:9997"),
-		MtxWHEPURL: getenv("MTX_WHEP_URL", "http://mediamtx:8889"),
-		RTMPURL:    getenv("RTMP_URL", "rtmp://localhost:1935/w"),
+		OIDC: OIDCConfig{
+			Enabled:      strings.EqualFold(getenv("OIDC_ENABLED", "false"), "true"),
+			IssuerURL:    strings.TrimRight(getenv("OIDC_ISSUER_URL", ""), "/"),
+			ClientID:     os.Getenv("OIDC_CLIENT_ID"),
+			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			RedirectURL:  getenv("OIDC_REDIRECT_URL", strings.TrimRight(getenv("APP_URL", "http://localhost:8080"), "/")+"/admin/oidc/callback"),
+		},
+		MtxAPIURL:     getenv("MTX_API_URL", "http://mediamtx:9997"),
+		MtxWHEPURL:    getenv("MTX_WHEP_URL", "http://mediamtx:8889"),
+		RTMPURL:       getenv("RTMP_URL", "rtmp://localhost:1935/w"),
+		RecordingsDir: getenv("RECORDINGS_DIR", "/recordings"),
+		S3: S3Config{
+			Endpoint:  getenv("S3_ENDPOINT", ""),
+			Secure:    !strings.EqualFold(getenv("S3_SECURE", "true"), "false"),
+			Region:    getenv("S3_REGION", ""),
+			Bucket:    os.Getenv("S3_BUCKET"),
+			AccessKey: os.Getenv("S3_ACCESS_KEY"),
+			SecretKey: os.Getenv("S3_SECRET_KEY"),
+			PublicURL: strings.TrimRight(getenv("S3_PUBLIC_URL", ""), "/"),
+			Prefix:    strings.Trim(getenv("S3_PREFIX", "recordings"), "/"),
+		},
 	}
 	if c.SMTP.From == "" {
 		c.SMTP.From = c.SMTP.User
+	}
+	if c.OIDC.Enabled {
+		if c.OIDC.IssuerURL == "" || c.OIDC.ClientID == "" {
+			return nil, fmt.Errorf("OIDC_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
+		}
+	}
+	if c.S3.Prefix == "" {
+		c.S3.Prefix = "recordings"
+	}
+
+	// Admin allowlist: ADMIN_EMAILS overrides ADMIN_EMAIL (which stays the fallback).
+	if v := os.Getenv("ADMIN_EMAILS"); v != "" {
+		for _, part := range strings.Split(v, ",") {
+			if e := strings.ToLower(strings.TrimSpace(part)); e != "" {
+				c.AdminEmails = append(c.AdminEmails, e)
+			}
+		}
+	}
+	if len(c.AdminEmails) == 0 {
+		c.AdminEmails = []string{c.AdminEmail}
 	}
 
 	switch c.AccessMode {

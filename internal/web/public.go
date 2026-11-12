@@ -39,10 +39,12 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 
 	if _, p := s.roomSession(r, wb); p != nil {
 		s.render(w, http.StatusOK, "room_watch.html", map[string]any{
-			"Webinar":     wb,
-			"Participant": p,
-			"WhepURL":     "/whep/" + wb.Slug,
-			"Email":       p.Email,
+			"Webinar":       wb,
+			"Participant":   p,
+			"WhepURL":       "/whep/" + wb.Slug,
+			"Email":         p.Email,
+			"RecordingOn":   wb.RecordingStatus == model.RecordingPublished,
+			"RecordingURLs": wb.RecordingURLList(),
 		})
 		return
 	}

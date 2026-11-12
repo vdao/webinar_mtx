@@ -17,6 +17,9 @@ import (
 	"github.com/vdao/webinar_mtx/internal/db"
 	"github.com/vdao/webinar_mtx/internal/mail"
 	"github.com/vdao/webinar_mtx/internal/mtx"
+	"github.com/vdao/webinar_mtx/internal/oidc"
+	"github.com/vdao/webinar_mtx/internal/recorder"
+	"github.com/vdao/webinar_mtx/internal/s3"
 	"github.com/vdao/webinar_mtx/internal/store"
 	"github.com/vdao/webinar_mtx/internal/web"
 )
@@ -47,9 +50,44 @@ func main() {
 	}
 	log.Println("database ready, migrations applied")
 
-	srv, err := web.New(cfg, store.New(sqlDB), mail.New(cfg.SMTP), mtx.New(cfg.MtxAPIURL))
+	// OIDC admin login (optional).
+	var oidcManager *oidc.Manager
+	if cfg.OIDC.Enabled {
+		oidcManager, err = oidc.New(ctx, cfg.OIDC)
+		if err != nil {
+			log.Fatalf("oidc: %v", err)
+		}
+		log.Printf("oidc: admin login via %s, allowed: %v", cfg.OIDC.IssuerURL, cfg.AdminEmails)
+	}
+
+	// S3 recording publishing (optional).
+	var s3Client *s3.Client
+	var recWorker *recorder.Worker
+	if cfg.S3.Configured() {
+		s3Client, err = s3.New(cfg.S3)
+		if err != nil {
+			log.Fatalf("s3: %v", err)
+		}
+		recWorker = recorder.New(cfg, store.New(sqlDB), mtx.New(cfg.MtxAPIURL), s3Client)
+		log.Printf("s3: recording publishing to %s/%s", cfg.S3.PublicURL, cfg.S3.Prefix)
+	} else {
+		log.Println("s3: not configured, recording publishing disabled")
+	}
+
+	srv, err := web.New(cfg, store.New(sqlDB), mail.New(cfg.SMTP), mtx.New(cfg.MtxAPIURL), oidcManager, recWorker)
 	if err != nil {
 		log.Fatalf("init web: %v", err)
+	}
+
+	// recording publisher worker
+	recorderDone := make(chan struct{})
+	if recWorker != nil {
+		go func() {
+			defer close(recorderDone)
+			recWorker.Run(ctx)
+		}()
+	} else {
+		close(recorderDone)
 	}
 
 	// periodic cleanup of expired sessions and codes
@@ -86,6 +124,7 @@ func main() {
 	defer cancel()
 	httpSrv.Shutdown(shCtx)
 	<-cleanupDone
+	<-recorderDone
 	log.Println("bye")
 }
 

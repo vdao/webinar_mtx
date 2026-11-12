@@ -15,25 +15,29 @@ var ErrConflict = errors.New("conflict")
 
 func scanWebinar(row interface{ Scan(...any) error }) (*model.Webinar, error) {
 	var w model.Webinar
+	var recordingID sql.NullString // assigned lazily at first publish
 	err := row.Scan(&w.ID, &w.Slug, &w.Title, &w.Description, &w.StreamKey,
-		&w.Status, &w.ScheduledAt, &w.CreatedAt, &w.UpdatedAt)
+		&w.Status, &w.ScheduledAt, &w.CreatedAt, &w.UpdatedAt,
+		&w.RecordEnabled, &recordingID, &w.RecordingStatus, &w.RecordingURLs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	w.RecordingID = recordingID.String
 	return &w, nil
 }
 
-const webinarCols = `id, slug, title, description, stream_key, status, scheduled_at, created_at, updated_at`
+const webinarCols = `id, slug, title, description, stream_key, status, scheduled_at, created_at, updated_at,
+	record_enabled, recording_id, recording_status, recording_urls`
 
 // CreateWebinar inserts a new webinar.
 func (s *Store) CreateWebinar(ctx context.Context, w *model.Webinar) error {
 	_, err := s.DB.ExecContext(ctx,
-		`INSERT INTO webinars (id, slug, title, description, stream_key, status, scheduled_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		w.ID, w.Slug, w.Title, w.Description, w.StreamKey, w.Status, w.ScheduledAt)
+		`INSERT INTO webinars (id, slug, title, description, stream_key, status, scheduled_at, record_enabled)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		w.ID, w.Slug, w.Title, w.Description, w.StreamKey, w.Status, w.ScheduledAt, w.RecordEnabled)
 	if err != nil && strings.Contains(err.Error(), "duplicate key") {
 		return ErrConflict
 	}
@@ -43,9 +47,10 @@ func (s *Store) CreateWebinar(ctx context.Context, w *model.Webinar) error {
 // UpdateWebinar updates mutable fields of a webinar.
 func (s *Store) UpdateWebinar(ctx context.Context, w *model.Webinar) error {
 	_, err := s.DB.ExecContext(ctx,
-		`UPDATE webinars SET slug=$2, title=$3, description=$4, status=$5, scheduled_at=$6, updated_at=now()
+		`UPDATE webinars SET slug=$2, title=$3, description=$4, status=$5, scheduled_at=$6,
+		        record_enabled=$7, updated_at=now()
 		 WHERE id=$1`,
-		w.ID, w.Slug, w.Title, w.Description, w.Status, w.ScheduledAt)
+		w.ID, w.Slug, w.Title, w.Description, w.Status, w.ScheduledAt, w.RecordEnabled)
 	if err != nil && strings.Contains(err.Error(), "duplicate key") {
 		return ErrConflict
 	}
@@ -133,6 +138,34 @@ func (s *Store) WebinarParticipantCounts(ctx context.Context) (map[string]int, e
 func (s *Store) DeleteWebinar(ctx context.Context, id string) error {
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM webinars WHERE id=$1`, id)
 	return err
+}
+
+// SetRecordingStatus updates the recording lifecycle status (and optionally URLs).
+func (s *Store) SetRecordingStatus(ctx context.Context, id, status string) error {
+	_, err := s.DB.ExecContext(ctx,
+		`UPDATE webinars SET recording_status=$2, updated_at=now() WHERE id=$1`, id, status)
+	return err
+}
+
+// SetRecordingResult stores the final recording state: status plus JSON URLs.
+func (s *Store) SetRecordingResult(ctx context.Context, id, status, urlsJSON string) error {
+	_, err := s.DB.ExecContext(ctx,
+		`UPDATE webinars SET recording_status=$2, recording_urls=$3, updated_at=now() WHERE id=$1`,
+		id, status, urlsJSON)
+	return err
+}
+
+// EnsureRecordingID assigns a fresh unguessable recording folder id if not set
+// yet and returns it.
+func (s *Store) EnsureRecordingID(ctx context.Context, id, recordingID string) (string, error) {
+	var existing string
+	err := s.DB.QueryRowContext(ctx,
+		`UPDATE webinars SET recording_id=COALESCE(recording_id, $2), updated_at=now()
+		 WHERE id=$1 RETURNING recording_id`, id, recordingID).Scan(&existing)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return existing, err
 }
 
 // nowFn allows tests to fake time if needed.

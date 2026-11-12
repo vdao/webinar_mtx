@@ -11,6 +11,10 @@
   <h1 class="auth-title"><span class="brand-dot"></span>Вебинары</h1>
   <p class="muted">Панель управления вебинарами</p>
   {{template "flash" .Flash}}
+  {{if .OIDCOn}}
+  <a class="btn btn-primary btn-block" href="/admin/oidc/start">Войти через SSO</a>
+  <p class="muted small" style="margin-top:14px">Вход в панель выполняется через корпоративный провайдер (OIDC). Парольный вход отключён.</p>
+  {{else}}
   <form method="post" action="/admin/login">
     <label>Email
       <input type="email" name="email" required autofocus autocomplete="username">
@@ -20,6 +24,7 @@
     </label>
     <button class="btn btn-primary btn-block" type="submit">Войти</button>
   </form>
+  {{end}}
 </div>
 </body>
 </html>

@@ -194,3 +194,9 @@ input[type="file"] { font-size: 13px; }
   animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .watch-bar { display: flex; align-items: center; gap: 14px; }
+.recording-box { display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 16px 22px; }
+.recording-title { font-weight: 600; }
+.btn-rec { background: #6366f1; border-color: #6366f1; color: #fff; }
+.btn-rec:hover { background: #5457e5; }

@@ -1,7 +1,10 @@
 // Package model defines the database entities.
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Webinar statuses.
 const (
@@ -38,6 +41,34 @@ type Webinar struct {
 	ScheduledAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+
+	// Recording publishing to S3.
+	RecordEnabled   bool   // record and publish this webinar when S3 is configured
+	RecordingID     string // unguessable folder name in the bucket (empty = not yet assigned)
+	RecordingStatus string // none | recording | uploading | published | failed
+	RecordingURLs   string // JSON array of public download URLs
+}
+
+// Recording statuses.
+const (
+	RecordingNone      = "none"      // no recording expected yet
+	RecordingActive    = "recording" // stream online, files are being written
+	RecordingUploading = "uploading"
+	RecordingPublished = "published"
+	RecordingFailed    = "failed"
+)
+
+// RecordingURLList decodes RecordingURLs JSON into a slice; returns nil on
+// empty or malformed input.
+func (w *Webinar) RecordingURLList() []string {
+	if w.RecordingURLs == "" {
+		return nil
+	}
+	var out []string
+	if json.Unmarshal([]byte(w.RecordingURLs), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // Participant is an email allowed to watch a specific webinar.

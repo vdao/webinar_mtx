@@ -15,7 +15,7 @@
 <div class="grid-2">
   <div class="card">
     <h2 class="card-title">Настройки</h2>
-    <form method="post" action="/admin/webinars/{{.Webinar.ID}}">
+    <form id="webinar-form" method="post" action="/admin/webinars/{{.Webinar.ID}}">
       <label>Название
         <input type="text" name="title" value="{{.Webinar.Title}}" required>
       </label>
@@ -68,6 +68,39 @@
       <div class="copy-line"><code id="room-url">{{.RoomURL}}</code><button class="btn btn-sm" data-copy="#room-url" type="button">Копировать</button></div>
       <p class="muted small">Доступ открыт только зарегистрированным email. Статус «В эфире» включает плеер, но подключиться можно и раньше — плеер дождётся начала.</p>
     </div>
+
+    {{if .S3Configured}}
+    <div class="card">
+      <h2 class="card-title">Запись и публикация</h2>
+      <label class="check">
+        <input type="checkbox" name="record_enabled" form="webinar-form" {{if .Webinar.RecordEnabled}}checked{{end}}>
+        Записывать вебинар и публиковать запись в S3
+      </label>
+        {{if eq .Webinar.RecordingStatus "published"}}
+        <div class="field">
+          <div class="field-label">Публичные ссылки на запись (видны участникам комнаты)</div>
+          {{range $i, $u := .RecordingURLs}}
+          <div class="copy-line"><code id="rec-url-{{$i}}">{{$u}}</code><a class="btn btn-sm" href="{{$u}}" target="_blank">Открыть</a><button class="btn btn-sm" data-copy="#rec-url-{{$i}}" type="button">Копировать</button></div>
+          {{end}}
+          <p class="muted small">Ссылка содержит неподбираемый идентификатор папки и доступна только участникам комнаты. После публикации запись появится на странице вебинара.</p>
+        </div>
+      {{else if eq .Webinar.RecordingStatus "uploading"}}
+        <p class="muted">⟳ Загружаем запись в хранилище…</p>
+      {{else if eq .Webinar.RecordingStatus "failed"}}
+        <p class="flash flash-err" style="margin:0 0 10px">Не удалось опубликовать запись — воркер повторит попытку автоматически.</p>
+        <form method="post" action="/admin/webinars/{{.Webinar.ID}}/publish-record">
+          <button class="btn btn-sm" type="submit">Повторить публикацию</button>
+        </form>
+      {{else if eq .Webinar.RecordingStatus "recording"}}
+        <p class="muted">● Идёт запись. После окончания эфира запись будет опубликована автоматически.</p>
+      {{else}}
+        <p class="muted small">Запись появится здесь автоматически после окончания эфира (или по кнопке ниже).</p>
+        <form method="post" action="/admin/webinars/{{.Webinar.ID}}/publish-record">
+          <button class="btn btn-sm" type="submit">Опубликовать запись сейчас</button>
+        </form>
+      {{end}}
+    </div>
+    {{end}}
   </div>
 </div>
 

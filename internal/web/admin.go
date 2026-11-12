@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -20,10 +21,18 @@ func (s *Server) adminLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/webinars", http.StatusFound)
 		return
 	}
-	s.render(w, http.StatusOK, "admin_login.html", map[string]any{"Flash": s.flashes(r)})
+	s.render(w, http.StatusOK, "admin_login.html", map[string]any{
+		"Flash":  s.flashes(r),
+		"OIDCOn": s.OIDC != nil,
+	})
 }
 
 func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
+	if s.OIDC != nil {
+		// OIDC mode replaces password login entirely.
+		flashRedirect(w, r, "/admin/login", "oidc-off", true)
+		return
+	}
 	email := webutil.NormalizeEmail(r.PostFormValue("email"))
 	pass := r.PostFormValue("password")
 	if email != s.Cfg.AdminEmail ||
@@ -75,10 +84,11 @@ func (s *Server) adminWebinars(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminWebinarCreate(w http.ResponseWriter, r *http.Request) {
 	wb := &model.Webinar{
-		ID:        "wb_" + config.RandomHex(12),
-		Title:     strings.TrimSpace(r.PostFormValue("title")),
-		Status:    model.WebinarDraft,
-		StreamKey: config.RandomHex(16),
+		ID:            "wb_" + config.RandomHex(12),
+		Title:         strings.TrimSpace(r.PostFormValue("title")),
+		Status:        model.WebinarDraft,
+		StreamKey:     config.RandomHex(16),
+		RecordEnabled: true,
 	}
 	if wb.Title == "" {
 		flashRedirect(w, r, "/admin/webinars", "invalid", true)
@@ -89,7 +99,32 @@ func (s *Server) adminWebinarCreate(w http.ResponseWriter, r *http.Request) {
 		flashRedirect(w, r, "/admin/webinars", "duplicate", true)
 		return
 	}
+	s.syncRecordingConfig(r, wb)
 	http.Redirect(w, r, "/admin/webinars/"+wb.ID+"?ok=created", http.StatusSeeOther)
+}
+
+// syncRecordingConfig keeps the MediaMTX path-level recording config in sync
+// with the webinar's RecordEnabled flag (only when S3 publishing is on).
+// Creating the config before the stream starts matters: patching a path while
+// it is publishing can interrupt the stream.
+func (s *Server) syncRecordingConfig(r *http.Request, wb *model.Webinar) {
+	if s.Recorder == nil {
+		return
+	}
+	name := "w/" + wb.StreamKey
+	ctx := r.Context()
+	if wb.RecordEnabled {
+		if err := s.Mtx.EnsurePathRecord(ctx, name, "168h"); err != nil {
+			log.Printf("sync recording config %s: %v", wb.Slug, err)
+		}
+		return
+	}
+	// Recording disabled: drop the path config while the stream is offline.
+	info, err := s.Mtx.GetPath(ctx, name)
+	if err == nil && info != nil && info.Ready {
+		return // stream is live; the worker will not re-assert a disabled flag anyway
+	}
+	_ = s.Mtx.DeletePathConfig(ctx, name)
 }
 
 // uniqueSlug normalizes an admin-provided slug or generates a random one.
@@ -136,14 +171,16 @@ func (s *Server) adminWebinarEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	total, _ := s.Store.CountParticipants(r.Context(), wb.ID)
 	s.render(w, http.StatusOK, "admin_webinar_edit.html", map[string]any{
-		"Active":   "webinars",
-		"Title":    wb.Title,
-		"Webinar":  wb,
-		"Statuses": model.WebinarStatuses,
-		"Total":    total,
-		"RoomURL":  s.roomURL(wb),
-		"RTMPURL":  s.Cfg.RTMPURL,
-		"Flash":    s.flashes(r),
+		"Active":        "webinars",
+		"Title":         wb.Title,
+		"Webinar":       wb,
+		"Statuses":      model.WebinarStatuses,
+		"Total":         total,
+		"RoomURL":       s.roomURL(wb),
+		"RTMPURL":       s.Cfg.RTMPURL,
+		"S3Configured":  s.Cfg.S3.Configured(),
+		"RecordingURLs": wb.RecordingURLList(),
+		"Flash":         s.flashes(r),
 	})
 }
 
@@ -179,11 +216,40 @@ func (s *Server) adminWebinarUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	wb.Title, wb.Description, wb.Status, wb.Slug, wb.ScheduledAt =
 		title, strings.TrimSpace(r.PostFormValue("description")), status, slug, sched
+	// The checkbox is rendered only when S3 is configured; without the field
+	// keep the stored value.
+	if r.PostForm.Has("record_enabled") {
+		wb.RecordEnabled = r.PostFormValue("record_enabled") == "on"
+	}
 	if err := s.Store.UpdateWebinar(r.Context(), wb); err != nil {
 		flashRedirect(w, r, "/admin/webinars/"+wb.ID, "duplicate", true)
 		return
 	}
+	s.syncRecordingConfig(r, wb)
 	flashRedirect(w, r, "/admin/webinars/"+wb.ID, "saved", false)
+}
+
+// adminWebinarPublishRecord asks the recorder worker to publish the recording
+// right away (admin button).
+func (s *Server) adminWebinarPublishRecord(w http.ResponseWriter, r *http.Request) {
+	wb := s.loadWebinar(w, r)
+	if wb == nil {
+		return
+	}
+	if s.Recorder == nil {
+		flashRedirect(w, r, "/admin/webinars/"+wb.ID, "notfound", true)
+		return
+	}
+	info, err := s.Mtx.GetPath(r.Context(), "w/"+wb.StreamKey)
+	if err == nil && info != nil && info.Ready {
+		flashRedirect(w, r, "/admin/webinars/"+wb.ID, "record-busy", true)
+		return
+	}
+	if err := s.Recorder.RequestPublish(wb.ID); err != nil {
+		flashRedirect(w, r, "/admin/webinars/"+wb.ID, "record-none", true)
+		return
+	}
+	flashRedirect(w, r, "/admin/webinars/"+wb.ID, "record-queued", false)
 }
 
 func (s *Server) adminWebinarDelete(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +261,8 @@ func (s *Server) adminWebinarDelete(w http.ResponseWriter, r *http.Request) {
 		flashRedirect(w, r, "/admin/webinars", "notfound", true)
 		return
 	}
+	// Best-effort: drop the runtime recording config of the path too.
+	_ = s.Mtx.DeletePathConfig(r.Context(), "w/"+wb.StreamKey)
 	flashRedirect(w, r, "/admin/webinars", "deleted", false)
 }
 
