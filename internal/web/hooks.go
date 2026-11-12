@@ -52,8 +52,8 @@ var presets = []Preset{
 	},
 	{
 		Key: "custom", Name: "Другая система",
-		EmailPath: "", ProductPath: "",
-		Sample: `{"email":"client@example.com","product_id":"webinar-pro"}`,
+		EmailPath: "email", ProductPath: "product_id",
+		Sample: `{"email":"client@example.com","name":"Иван Иванов","product_id":"webinar-pro"}`,
 	},
 }
 
@@ -100,7 +100,16 @@ func (s *Server) processWebhookPayload(r *http.Request, wh *model.Webhook, paylo
 		return webhookOutcome{OK: false, Reason: " вебинар из маппинга не найден"}
 	}
 
-	p, created, err := s.Store.AddParticipant(r.Context(), webinarID, email, "", model.SourceWebhook)
+	// Optional participant name (ФИО): a top-level "name" field in the
+	// payload, when present, is stored with the participant (e.g. Google
+	// Forms integration sends it alongside the email).
+	name, _ := webutil.GetPath(payload, "name")
+	name = strings.TrimSpace(name)
+	if len(name) > 200 {
+		name = name[:200]
+	}
+
+	p, created, err := s.Store.AddParticipant(r.Context(), webinarID, email, name, model.SourceWebhook)
 	if err != nil {
 		return webhookOutcome{OK: false, Reason: "ошибка базы данных"}
 	}

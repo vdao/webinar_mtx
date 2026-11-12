@@ -145,7 +145,11 @@ ID-токена есть группа `OIDC_ADMIN_GROUP` (точное совп�
 
 Есть пресеты полей для ЮKassa, CloudPayments, Stripe, Prodamus и Т-Банка и кнопка
 «тестовый запрос». Повторные уведомления идемпотентны. Поддерживаются JSON и
-`form-urlencoded`.
+`form-urlencoded`. Необязательное поле `name` в payload сохраняется как ФИО
+участника.
+
+Готовый сценарий регистрации с **Google Форм** (форма → Apps Script → вебхук →
+письмо с персональной ссылкой) — в [docs/google-forms-integration.md](docs/google-forms-integration.md).
 
 Пример (ЮKassa-подобный payload):
 
