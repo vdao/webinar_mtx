@@ -1,0 +1,111 @@
+# Вариант docker-compose для развёртывания через Coolify.
+#
+# Отличия от корневого docker-compose.yml:
+#  • приложение без build и без published-порта — домен/HTTPS назначается
+#    в Coolify (Domains → сервис app, внутренний порт 8080);
+#  • MediaMTX настраивается переменными MTX_* (файл mediamtx.yml не нужен —
+#    Coolify не любит bind-маунты файлов из репозитория);
+#  • наружу открыты только медиа-порты: 1935 (RTMP для ведущего) и
+#    8189 tcp/udp (WebRTC ICE). WHEP-сигналинг идёт через приложение.
+#
+# Все ${ПЕРЕМЕННЫЕ} заполняются в UI Coolify (Environment Variables),
+# значения по умолчанию берутся из :-default. Руководство: docs/coolify.md
+
+services:
+  app:
+    image: ghcr.io/vdao/webinar_mtx:${APP_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      LISTEN: ":8080"
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-webinar}:${POSTGRES_PASSWORD:-webinar}@db:5432/${POSTGRES_DB:-webinar}?sslmode=disable
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+      APP_SECRET: ${APP_SECRET:-}
+      SESSION_TTL: ${SESSION_TTL:-12h}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
+      NOTIFY_RECORDING_URL: ${NOTIFY_RECORDING_URL:-}
+      NOTIFY_RECORDING_SECRET: ${NOTIFY_RECORDING_SECRET:-}
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-admin}
+      MTX_API_URL: http://mediamtx:9997
+      MTX_WHEP_URL: http://mediamtx:8889
+      RTMP_URL: ${RTMP_URL:-rtmp://localhost:1935/w}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_SECURE: ${S3_SECURE:-true}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      S3_PREFIX: ${S3_PREFIX:-recordings}
+      RECORDINGS_DIR: /recordings
+    volumes:
+      # Записи пишет только MediaMTX (тот же том у сервиса mediamtx — rw);
+      # приложение лишь читает файлы для загрузки в S3, поэтому read-only.
+      - recordings:/recordings:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-webinar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webinar}
+      POSTGRES_DB: ${POSTGRES_DB:-webinar}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-webinar} -d ${POSTGRES_DB:-webinar}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    restart: unless-stopped
+    # Вся настройка — через MTX_* (см. корневой mediamtx/mediamtx.yml
+    # для справки; значения идентичны).
+    environment:
+      MTX_LOGLEVEL: warn
+      MTX_API: "true"
+      MTX_APIADDRESS: ":9997"
+      MTX_AUTHMETHOD: http
+      MTX_AUTHHTTPADDRESS: http://app:8080/internal/mtx/auth
+      # Не требовать external-auth для запросов самого приложения к API MediaMTX
+      # (счётчик зрителей). Порт 9997 наружу не публикуется.
+      MTX_AUTHHTTPEXCLUDE_0_ACTION: api
+      MTX_RTSP: "false"
+      MTX_SRT: "false"
+      MTX_HLS: "false"
+      MTX_MOQ: "false"
+      MTX_WEBRTCLOCALUDPADDRESS: ":8189"
+      MTX_WEBRTCLOCALTCPADDRESS: ":8189"
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_HOST:-localhost}
+      # Секцию paths специально не задаём: встроенный конфиг образа уже
+      # содержит "paths: all_others:" (пути по требованию); env-парсер
+      # MediaMTX не умеет ссылаться на ключи с "_" в имени — попытка
+      # задать MTX_PATHS_ALL_OTHERS создаёт лишний алиас "all" и падает.
+    volumes:
+      - recordings:/recordings
+    ports:
+      - "1935:1935"     # RTMP ingest (OBS)
+      - "8189:8189/tcp" # WebRTC ICE over TCP
+      - "8189:8189/udp" # WebRTC ICE over UDP (минимальная задержка)
+
+volumes:
+  pgdata:
+  recordings:

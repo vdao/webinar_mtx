@@ -240,6 +240,12 @@ git push origin v0.3.0
 (а также `:0.3` и `:latest`). Если хотите, чтобы `docker-compose.yml` тянул
 образ с Docker Hub — поменяйте `image:` у сервиса `app`.
 
+## Развёртывание в Coolify
+
+Для Coolify используйте [`deploy/coolify/docker-compose.yml`](deploy/coolify/docker-compose.yml):
+приложение за доменом/HTTPS прокси Coolify, MediaMTX настраивается переменными
+`MTX_*` без файлов. Пошаговое руководство — [docs/coolify.md](docs/coolify.md).
+
 ## Развёртывание на сервере
 
 `docker-compose.yml` из репозитория готов к использованию как основа деплоя

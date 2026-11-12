@@ -132,7 +132,14 @@ func (s *Server) mtxAuth(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 
-	default: // api/metrics/playback/pprof — not used, deny
+	case "api", "metrics":
+		// The app itself queries the MediaMTX API (viewer counts) over the
+		// container network; the API port is never published. Allowing these
+		// actions keeps env-only MediaMTX setups (e.g. Coolify) working
+		// without the authHTTPExclude list.
+		w.WriteHeader(http.StatusOK)
+
+	default: // playback/pprof — not used, deny
 		w.WriteHeader(http.StatusForbidden)
 	}
 }
