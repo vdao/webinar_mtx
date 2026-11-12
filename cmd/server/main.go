@@ -15,7 +15,6 @@ import (
 
 	"github.com/vdao/webinar_mtx/internal/config"
 	"github.com/vdao/webinar_mtx/internal/db"
-	"github.com/vdao/webinar_mtx/internal/mail"
 	"github.com/vdao/webinar_mtx/internal/mtx"
 	"github.com/vdao/webinar_mtx/internal/oidc"
 	"github.com/vdao/webinar_mtx/internal/recorder"
@@ -74,9 +73,26 @@ func main() {
 		log.Println("s3: not configured, recording publishing disabled")
 	}
 
-	srv, err := web.New(cfg, store.New(sqlDB), mail.New(cfg.SMTP), mtx.New(cfg.MtxAPIURL), oidcManager, recWorker)
+	// Registration notification webhook (optional).
+	notifier := web.NewNotifier(cfg.Notify.WebhookURL, cfg.Notify.WebhookSecret)
+	if notifier != nil {
+		log.Printf("notify: registration events to %s", cfg.Notify.WebhookURL)
+	}
+
+	srv, err := web.New(cfg, store.New(sqlDB), mtx.New(cfg.MtxAPIURL), oidcManager, recWorker, notifier)
 	if err != nil {
 		log.Fatalf("init web: %v", err)
+	}
+
+	// registration notifier worker
+	notifyDone := make(chan struct{})
+	if notifier != nil {
+		go func() {
+			defer close(notifyDone)
+			notifier.Run(ctx)
+		}()
+	} else {
+		close(notifyDone)
 	}
 
 	// recording publisher worker
@@ -90,7 +106,7 @@ func main() {
 		close(recorderDone)
 	}
 
-	// periodic cleanup of expired sessions and codes
+	// periodic cleanup of expired sessions
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
@@ -125,6 +141,7 @@ func main() {
 	httpSrv.Shutdown(shCtx)
 	<-cleanupDone
 	<-recorderDone
+	<-notifyDone
 	log.Println("bye")
 }
 

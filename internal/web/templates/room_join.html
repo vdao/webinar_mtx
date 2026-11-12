@@ -10,30 +10,14 @@
 <div class="card join-card">
   {{if .Webinar.Description}}<p class="join-desc">{{.Webinar.Description}}</p>{{end}}
   <h1 class="join-title">{{.Webinar.Title}}</h1>
-  {{if .Webinar.ScheduledAt}}<p class="muted">Начало: {{.Webinar.ScheduledAt.Local.Format "02.01.2006 в 15:04 (МСК)"}}</p>{{end}}
+  {{if .Webinar.ScheduledAt}}<p class="muted">Начало: {{.Webinar.ScheduledAt.Local.Format "02.01.2006 в 15:04"}}</p>{{end}}
 
-  {{template "flash" .Flash}}
-
-  {{if and (eq .Stage "code") .CodeMode}}
-  <form method="post" action="/w/{{.Webinar.Slug}}/verify" class="join-form">
-    <input type="hidden" name="email" value="{{.Email}}">
-    <p class="muted">Мы отправили код на <b>{{.Email}}</b>. Введите его:</p>
-    <label>Код из письма
-      <input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
-             class="code-input" autocomplete="one-time-code" placeholder="000000">
-    </label>
-    <button class="btn btn-primary btn-block" type="submit">Войти</button>
-    <a class="link-muted" href="/w/{{.Webinar.Slug}}">← другой email</a>
-  </form>
-  {{else}}
-  <form method="post" action="/w/{{.Webinar.Slug}}/enter" class="join-form">
-    <p class="muted">Вход по email, указанному при регистрации на вебинар.</p>
-    <label>Email
-      <input type="email" name="email" required autofocus placeholder="you@example.com" value="{{.Email}}">
-    </label>
-    <button class="btn btn-primary btn-block" type="submit">Войти на вебинар</button>
-  </form>
-  {{end}}
+  <div class="join-form">
+    <p class="muted">Вход на вебинар — только по персональной ссылке,
+    которую вы получили после регистрации.</p>
+    <p class="muted small">Откройте ссылку из письма — код входа подставится автоматически.
+    Если ссылка не работает, обратитесь к организаторам.</p>
+  </div>
 </div>
 </body>
 </html>

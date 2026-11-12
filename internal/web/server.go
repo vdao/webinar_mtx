@@ -15,7 +15,6 @@ import (
 
 	"github.com/vdao/webinar_mtx/internal/auth"
 	"github.com/vdao/webinar_mtx/internal/config"
-	"github.com/vdao/webinar_mtx/internal/mail"
 	"github.com/vdao/webinar_mtx/internal/model"
 	"github.com/vdao/webinar_mtx/internal/mtx"
 	"github.com/vdao/webinar_mtx/internal/oidc"
@@ -29,13 +28,12 @@ var contentFS embed.FS
 type Server struct {
 	Cfg           *config.Config
 	Store         *store.Store
-	Mailer        *mail.Sender
 	Mtx           *mtx.Client
 	Tpl           *template.Template
 	AdminHash     []byte
-	CodeLimiter   *auth.Limiter
-	IPCodeLimiter *auth.Limiter
+	IPCodeLimiter *auth.Limiter // per-IP limit for personal-link code attempts
 
+	Notify   *Notifier        // nil when NOTIFY_WEBHOOK_URL is not set
 	OIDC     *oidc.Manager    // nil when OIDC login is disabled
 	Recorder PublishRequester // nil when S3 recording publishing is disabled
 }
@@ -47,8 +45,8 @@ type PublishRequester interface {
 }
 
 // New builds the server and parses templates.
-func New(cfg *config.Config, st *store.Store, mailer *mail.Sender, mtxClient *mtx.Client,
-	oidcManager *oidc.Manager, recorder PublishRequester) (*Server, error) {
+func New(cfg *config.Config, st *store.Store, mtxClient *mtx.Client,
+	oidcManager *oidc.Manager, recorder PublishRequester, notifier *Notifier) (*Server, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -56,11 +54,10 @@ func New(cfg *config.Config, st *store.Store, mailer *mail.Sender, mtxClient *mt
 	s := &Server{
 		Cfg:           cfg,
 		Store:         st,
-		Mailer:        mailer,
 		Mtx:           mtxClient,
 		AdminHash:     hash,
-		CodeLimiter:   auth.NewLimiter(5, 10*time.Minute), // per ip+email
-		IPCodeLimiter: auth.NewLimiter(30, time.Hour),     // per ip
+		IPCodeLimiter: auth.NewLimiter(30, time.Hour),
+		Notify:        notifier,
 		OIDC:          oidcManager,
 		Recorder:      recorder,
 	}
@@ -127,8 +124,6 @@ func (s *Server) Handler() http.Handler {
 		http.Redirect(w, r, "/admin", http.StatusFound)
 	})
 	mux.HandleFunc("GET /w/{slug}", s.roomPage)
-	mux.HandleFunc("POST /w/{slug}/enter", s.roomEnter)
-	mux.HandleFunc("POST /w/{slug}/verify", s.roomVerify)
 	mux.HandleFunc("POST /w/{slug}/exit", s.roomExit)
 	mux.HandleFunc("POST /whep/{slug}", s.whepProxy)
 
@@ -161,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/webinars/{id}/participants/export", s.requireAdmin(s.adminParticipantsExport))
 	mux.HandleFunc("POST /admin/participants/{pid}/status", s.requireAdmin(s.adminParticipantStatus))
 	mux.HandleFunc("POST /admin/participants/{pid}/delete", s.requireAdmin(s.adminParticipantDelete))
+	mux.HandleFunc("POST /admin/participants/{pid}/code", s.requireAdmin(s.adminParticipantRegenCode))
 
 	mux.HandleFunc("GET /admin/webhooks", s.requireAdmin(s.adminWebhooks))
 	mux.HandleFunc("POST /admin/webhooks", s.requireAdmin(s.adminWebhookCreate))
@@ -205,10 +201,8 @@ var flashText = map[string]string{
 	"badlogin":      "Неверный email или пароль",
 	"notfound":      "Не найдено",
 	"duplicate":     "Такой slug или email уже существует",
-	"wrongcode":     "Неверный или истёкший код",
-	"notallowed":    "Доступ запрещён: email не зарегистрирован или заблокирован",
+	"code-regen":    "Новый персональный код сгенерирован. Прежняя ссылка больше не работает!",
 	"rate":          "Слишком часто. Попробуйте позже",
-	"mailfail":      "Не удалось отправить письмо. Попробуйте позже",
 	"invalid":       "Проверьте правильность заполнения полей",
 	"record-busy":   "Эфир ещё идёт — запись можно опубликовать после окончания",
 	"record-none":   "Файлы записи не найдены",

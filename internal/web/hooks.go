@@ -63,6 +63,7 @@ type webhookOutcome struct {
 	Reason  string `json:"reason,omitempty"`
 	Email   string `json:"email,omitempty"`
 	Webinar string `json:"webinar,omitempty"`
+	Link    string `json:"link,omitempty"`
 	Created bool   `json:"created"`
 }
 
@@ -99,11 +100,22 @@ func (s *Server) processWebhookPayload(r *http.Request, wh *model.Webhook, paylo
 		return webhookOutcome{OK: false, Reason: " вебинар из маппинга не найден"}
 	}
 
-	_, created, err := s.Store.AddParticipant(r.Context(), webinarID, email, "", model.SourceWebhook)
+	p, created, err := s.Store.AddParticipant(r.Context(), webinarID, email, "", model.SourceWebhook)
 	if err != nil {
 		return webhookOutcome{OK: false, Reason: "ошибка базы данных"}
 	}
-	return webhookOutcome{OK: true, Email: email, Webinar: wb.Title, Created: created}
+	if created {
+		s.Notify.NotifyRegistered(wb, p, s.participantLink(wb, p.Code))
+	}
+	return webhookOutcome{OK: true, Email: email, Webinar: wb.Title, Created: created, Link: linkFor(s, wb, p)}
+}
+
+// linkFor returns the personal room link (empty for duplicates).
+func linkFor(s *Server, wb *model.Webinar, p *model.Participant) string {
+	if p.Code == "" {
+		return ""
+	}
+	return s.participantLink(wb, p.Code)
 }
 
 // decodePayload parses a JSON or form-urlencoded webhook body.

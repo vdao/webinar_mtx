@@ -10,14 +10,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
       APP_SECRET: ${APP_SECRET:-}
-      # direct: вход по факту email в списке; code: одноразовый код на почту (нужен SMTP)
-      ACCESS_MODE: ${ACCESS_MODE:-direct}
       SESSION_TTL: ${SESSION_TTL:-12h}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-}
+      # Исходящий вебхук уведомлений о регистрациях (для CRM/рассыльщика)
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
       # OIDC SSO для админки (true — парольный вход отключается)
       OIDC_ENABLED: ${OIDC_ENABLED:-false}
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}

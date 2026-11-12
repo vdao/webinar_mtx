@@ -36,6 +36,7 @@ func (s *Server) adminParticipants(w http.ResponseWriter, r *http.Request) {
 		"Active":       "webinars",
 		"Title":        "Участники — " + wb.Title,
 		"Webinar":      wb,
+		"AppURL":       s.Cfg.AppURL,
 		"Participants": list,
 		"Query":        q,
 		"Total":        total,
@@ -55,10 +56,13 @@ func (s *Server) adminParticipantAdd(w http.ResponseWriter, r *http.Request) {
 		flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "invalid", true)
 		return
 	}
-	_, created, err := s.Store.AddParticipant(r.Context(), wb.ID, email, name, model.SourceManual)
+	p, created, err := s.Store.AddParticipant(r.Context(), wb.ID, email, name, model.SourceManual)
 	if err != nil {
 		flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "notfound", true)
 		return
+	}
+	if created {
+		s.Notify.NotifyRegistered(wb, p, s.participantLink(wb, p.Code))
 	}
 	code := "saved"
 	if !created {
@@ -85,14 +89,20 @@ func (s *Server) adminParticipantsImport(w http.ResponseWriter, r *http.Request)
 		flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "notfound", true)
 		return
 	}
+	for _, p := range inserted {
+		s.Notify.NotifyRegistered(wb, p, s.participantLink(wb, p.Code))
+	}
+	added := len(inserted)
 
 	to := "/admin/webinars/" + wb.ID + "/participants?ok=imported"
-	to += "&added=" + itoa(inserted) +
-		"&dups=" + itoa(len(res.Emails)-inserted+res.Duplicates) +
+	to += "&added=" + itoa(added) +
+		"&dups=" + itoa(len(res.Emails)-added+res.Duplicates) +
 		"&bad=" + itoa(len(res.Skipped))
 	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
+// adminParticipantsExport streams a CSV of email + personal link pairs,
+// ready for a CRM mailing.
 func (s *Server) adminParticipantsExport(w http.ResponseWriter, r *http.Request) {
 	wb := s.loadWebinar(w, r)
 	if wb == nil {
@@ -104,25 +114,17 @@ func (s *Server) adminParticipantsExport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var b strings.Builder
-	b.WriteString("email,name,status,source,created_at,last_seen_at\n")
+	b.WriteString("email,link\n")
 	for _, p := range list {
-		last := ""
-		if p.LastSeenAt != nil {
-			last = p.LastSeenAt.Format("2006-01-02 15:04:05")
+		link := s.participantLink(wb, p.Code)
+		if p.Status == model.ParticipantBlocked {
+			continue // blocked viewers must not receive working links
 		}
-		b.WriteString(p.Email + "," + csvEscape(p.Name) + "," + p.Status + "," + p.Source + "," +
-			p.CreatedAt.Format("2006-01-02 15:04:05") + "," + last + "\n")
+		b.WriteString(p.Email + "," + link + "\n")
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", "attachment; filename=participants_"+wb.Slug+".csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=links_"+wb.Slug+".csv")
 	w.Write([]byte("\xEF\xBB\xBF" + b.String())) // BOM so Excel opens UTF-8
-}
-
-func csvEscape(s string) string {
-	if strings.ContainsAny(s, ",\"\n") {
-		return "\"" + strings.ReplaceAll(s, "\"", "\"\"") + "\""
-	}
-	return s
 }
 
 func (s *Server) loadParticipant(w http.ResponseWriter, r *http.Request) (*model.Participant, *model.Webinar) {
@@ -166,6 +168,19 @@ func (s *Server) adminParticipantDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "deleted", false)
+}
+
+// adminParticipantRegenCode issues a new personal code (the old link dies).
+func (s *Server) adminParticipantRegenCode(w http.ResponseWriter, r *http.Request) {
+	p, wb := s.loadParticipant(w, r)
+	if p == nil {
+		return
+	}
+	if _, err := s.Store.RegenParticipantCode(r.Context(), p.ID); err != nil {
+		flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "notfound", true)
+		return
+	}
+	flashRedirect(w, r, "/admin/webinars/"+wb.ID+"/participants", "code-regen", false)
 }
 
 func itoa(n int) string {

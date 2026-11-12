@@ -7,7 +7,7 @@
     <h1>Участники <span class="muted h1-sub">всего {{.Total}}</span></h1>
   </div>
   <div class="page-head-actions">
-    <a class="btn" href="/admin/webinars/{{.Webinar.ID}}/participants/export">Экспорт CSV</a>
+    <a class="btn" href="/admin/webinars/{{.Webinar.ID}}/participants/export">Экспорт email+ссылки (CSV)</a>
   </div>
 </div>
 
@@ -25,6 +25,7 @@
       <input type="text" name="name" placeholder="Имя (необязательно)">
       <button class="btn btn-primary" type="submit">Добавить</button>
     </form>
+    <p class="muted small">Каждому участнику сразу создаётся персональная ссылка с уникальным кодом.</p>
   </div>
 
   <div class="card">
@@ -39,23 +40,26 @@
 
 <div class="card">
   <form method="get" action="/admin/webinars/{{.Webinar.ID}}/participants" class="form-row">
-    <input type="search" name="q" value="{{.Query}}" placeholder="Поиск по email или имени" class="grow">
+    <input type="search" name="q" value="{{.Query}}" placeholder="Поиск по email, имени или коду" class="grow">
     <button class="btn" type="submit">Найти</button>
     {{if .Query}}<a class="btn btn-ghost" href="/admin/webinars/{{.Webinar.ID}}/participants">Сброс</a>{{end}}
   </form>
 
   <table class="table">
     <thead>
-      <tr><th>Email</th><th>Имя</th><th>Источник</th><th>Статус</th><th>Добавлен</th><th>Был онлайн</th><th></th></tr>
+      <tr><th>Email</th><th>Имя</th><th>Источник</th><th>Статус</th><th>Персональная ссылка</th><th>Был онлайн</th><th></th></tr>
     </thead>
     <tbody>
+      {{$slug := .Webinar.Slug}}
       {{range .Participants}}
       <tr class="{{if eq .Status "blocked"}}row-blocked{{end}}">
         <td class="mono">{{.Email}}</td>
         <td>{{.Name}}</td>
         <td><span class="badge badge-src-{{.Source}}">{{sourcelabel .Source}}</span></td>
         <td>{{if eq .Status "blocked"}}<span class="badge badge-blocked">Заблокирован</span>{{else}}<span class="badge badge-active-part">Активен</span>{{end}}</td>
-        <td class="muted">{{.CreatedAt.Local.Format "02.01.2006 15:04"}}</td>
+        <td>
+          <div class="copy-line"><code id="plink-{{.ID}}">{{$.AppURL}}/w/{{$slug}}?c={{.Code}}</code><a class="btn btn-sm" href="/w/{{$slug}}?c={{.Code}}" target="_blank">Открыть</a><button class="btn btn-sm" data-copy="#plink-{{.ID}}" type="button">Копировать</button></div>
+        </td>
         <td class="muted">{{if .LastSeenAt}}{{.LastSeenAt.Local.Format "02.01.2006 15:04"}}{{else}}—{{end}}</td>
         <td class="actions">
           {{if eq .Status "blocked"}}
@@ -63,6 +67,7 @@
           {{else}}
           <form method="post" action="/admin/participants/{{.ID}}/status"><input type="hidden" name="status" value="blocked"><button class="btn btn-sm" type="submit">Заблокировать</button></form>
           {{end}}
+          <form method="post" action="/admin/participants/{{.ID}}/code"><button class="btn btn-sm" type="submit" data-confirm="Сгенерировать новый код? Прежняя персональная ссылка перестанет работать.">Новый код</button></form>
           <form method="post" action="/admin/participants/{{.ID}}/delete"><button class="btn btn-sm btn-danger-ghost" type="submit" data-confirm="Удалить участника?">Удалить</button></form>
         </td>
       </tr>

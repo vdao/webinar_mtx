@@ -25,7 +25,9 @@ func (s *Server) roomSession(r *http.Request, wb *model.Webinar) (*model.Partici
 	return sess, p
 }
 
-// GET /w/{slug} — join form or the player page.
+// GET /w/{slug} — the room: a personal link (?c=CODE) opens the player,
+// otherwise a "personal link required" page (or the player when a valid
+// session cookie already exists).
 func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 	wb, err := s.Store.WebinarBySlug(r.Context(), r.PathValue("slug"))
 	if err == store.ErrNotFound {
@@ -37,106 +39,41 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Already logged in → straight to the player.
 	if _, p := s.roomSession(r, wb); p != nil {
-		s.render(w, http.StatusOK, "room_watch.html", map[string]any{
-			"Webinar":       wb,
-			"Participant":   p,
-			"WhepURL":       "/whep/" + wb.Slug,
-			"Email":         p.Email,
-			"RecordingOn":   wb.RecordingStatus == model.RecordingPublished,
-			"RecordingURLs": wb.RecordingURLList(),
+		s.renderWatch(w, r, wb, p)
+		return
+	}
+
+	code := r.URL.Query().Get("c")
+	if code == "" {
+		s.render(w, http.StatusOK, "room_join.html", map[string]any{
+			"Webinar": wb,
 		})
 		return
 	}
-	s.render(w, http.StatusOK, "room_join.html", map[string]any{
-		"Webinar":  wb,
-		"CodeMode": s.Cfg.AccessMode == "code",
-		"Email":    r.URL.Query().Get("e"),
-		"Stage":    r.URL.Query().Get("stage"),
-		"Flash":    s.flashes(r),
-	})
-}
 
-// POST /w/{slug}/enter — email check; sends a code or logs in directly.
-func (s *Server) roomEnter(w http.ResponseWriter, r *http.Request) {
-	wb, err := s.Store.WebinarBySlug(r.Context(), r.PathValue("slug"))
-	if err != nil {
-		s.renderError(w, r, 404, "Вебинар не найден")
+	// A personal link: validate the code with per-IP rate limiting.
+	if !s.IPCodeLimiter.Allow(webutil.ClientIP(r)) {
+		s.renderError(w, r, http.StatusTooManyRequests, "Слишком много попыток входа. Попробуйте позже.")
 		return
 	}
-	email := webutil.NormalizeEmail(r.PostFormValue("email"))
-	if !webutil.ValidEmail(email) {
-		flashRedirect(w, r, "/w/"+wb.Slug, "invalid", true)
-		return
-	}
-	ip := webutil.ClientIP(r)
-	if !s.IPCodeLimiter.Allow(ip) || !s.CodeLimiter.Allow(ip+"|"+email) {
-		flashRedirect(w, r, "/w/"+wb.Slug, "rate", true)
-		return
-	}
-
-	p, err := s.Store.ParticipantByEmail(r.Context(), wb.ID, email)
+	p, err := s.Store.ParticipantByCode(r.Context(), wb.ID, code)
 	if err == store.ErrNotFound {
-		// Do not leak whether the email is registered: generic message.
-		flashRedirect(w, r, "/w/"+wb.Slug, "notallowed", true)
+		s.renderError(w, r, http.StatusForbidden,
+			"Ссылка недействительна. Проверьте, что вы открыли именно вашу персональную ссылку.")
 		return
 	}
 	if err != nil {
-		flashRedirect(w, r, "/w/"+wb.Slug, "mailfail", true)
+		s.renderError(w, r, 500, "Ошибка базы данных")
 		return
 	}
 	if p.Status == model.ParticipantBlocked {
-		flashRedirect(w, r, "/w/"+wb.Slug, "notallowed", true)
+		s.renderError(w, r, http.StatusForbidden, "Доступ к вебинару закрыт.")
 		return
 	}
 
-	if s.Cfg.AccessMode == "code" {
-		code, err := s.Store.CreateLoginCode(r.Context(), wb.ID, email, s.Cfg.CodeTTL)
-		if err != nil {
-			flashRedirect(w, r, "/w/"+wb.Slug, "mailfail", true)
-			return
-		}
-		if err := s.Mailer.SendLoginCode(email, code, wb.Title); err != nil {
-			flashRedirect(w, r, "/w/"+wb.Slug, "mailfail", true)
-			return
-		}
-		http.Redirect(w, r, "/w/"+wb.Slug+"?stage=code&e="+webutil.SafeQuery(email), http.StatusSeeOther)
-		return
-	}
-
-	s.startSession(w, r, wb, p)
-}
-
-// POST /w/{slug}/verify — checks the one-time code and logs in.
-func (s *Server) roomVerify(w http.ResponseWriter, r *http.Request) {
-	wb, err := s.Store.WebinarBySlug(r.Context(), r.PathValue("slug"))
-	if err != nil {
-		s.renderError(w, r, 404, "Вебинар не найден")
-		return
-	}
-	email := webutil.NormalizeEmail(r.PostFormValue("email"))
-	code := r.PostFormValue("code")
-	if email == "" || code == "" {
-		flashRedirect(w, r, "/w/"+wb.Slug, "invalid", true)
-		return
-	}
-	if !s.CodeLimiter.Allow(webutil.ClientIP(r) + "|" + email) {
-		flashRedirect(w, r, "/w/"+wb.Slug, "rate", true)
-		return
-	}
-	if err := s.Store.ConsumeLoginCode(r.Context(), wb.ID, email, code); err != nil {
-		http.Redirect(w, r, "/w/"+wb.Slug+"?stage=code&e="+webutil.SafeQuery(email)+"&err=wrongcode", http.StatusSeeOther)
-		return
-	}
-	p, err := s.Store.ParticipantByEmail(r.Context(), wb.ID, email)
-	if err != nil || p.Status == model.ParticipantBlocked {
-		flashRedirect(w, r, "/w/"+wb.Slug, "notallowed", true)
-		return
-	}
-	s.startSession(w, r, wb, p)
-}
-
-func (s *Server) startSession(w http.ResponseWriter, r *http.Request, wb *model.Webinar, p *model.Participant) {
+	// Issue the session and show the player with a clean URL.
 	token, err := s.Store.CreateSession(r.Context(), p.ID, wb.ID, s.Cfg.SessionTTL)
 	if err != nil {
 		s.renderError(w, r, 500, "Не удалось создать сессию")
@@ -144,6 +81,18 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, wb *model.
 	}
 	auth.SetRoomCookie(w, r, wb.Slug, token, s.Cfg.SessionTTL)
 	http.Redirect(w, r, "/w/"+wb.Slug, http.StatusSeeOther)
+}
+
+// renderWatch draws the player page for an authenticated participant.
+func (s *Server) renderWatch(w http.ResponseWriter, r *http.Request, wb *model.Webinar, p *model.Participant) {
+	s.render(w, http.StatusOK, "room_watch.html", map[string]any{
+		"Webinar":       wb,
+		"Participant":   p,
+		"WhepURL":       "/whep/" + wb.Slug,
+		"Email":         p.Email,
+		"RecordingOn":   wb.RecordingStatus == model.RecordingPublished,
+		"RecordingURLs": wb.RecordingURLList(),
+	})
 }
 
 // POST /w/{slug}/exit — leave the room and drop the session.

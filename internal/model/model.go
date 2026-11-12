@@ -71,12 +71,14 @@ func (w *Webinar) RecordingURLList() []string {
 	return out
 }
 
-// Participant is an email allowed to watch a specific webinar.
+// Participant is a registered viewer of a specific webinar. Access to the
+// room is granted by the personal Code embedded in the participant's link.
 type Participant struct {
 	ID         string
 	WebinarID  string
 	Email      string
 	Name       string
+	Code       string // personal access code, part of the room link
 	Status     string // active | blocked
 	Source     string // import | manual | webhook
 	CreatedAt  time.Time
@@ -91,17 +93,6 @@ type ParticipantSession struct {
 	TokenHash     string
 	ExpiresAt     time.Time
 	CreatedAt     time.Time
-}
-
-// LoginCode is a one-time email verification code.
-type LoginCode struct {
-	ID        string
-	WebinarID string
-	Email     string
-	CodeHash  string
-	ExpiresAt time.Time
-	Attempts  int
-	CreatedAt time.Time
 }
 
 // Webhook is an inbound payment webhook configuration.

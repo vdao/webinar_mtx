@@ -12,13 +12,10 @@ import (
 	"time"
 )
 
-// SMTPConfig holds SMTP server settings for sending one-time login codes.
-type SMTPConfig struct {
-	Host string // SMTP server host, empty disables email sending
-	Port int
-	User string
-	Pass string
-	From string // From address, defaults to User
+// NotifyConfig holds the outgoing registration-notification webhook settings.
+type NotifyConfig struct {
+	WebhookURL    string // POST target for registration events; empty disables notifications
+	WebhookSecret string // shared secret for the X-Webhook-Signature header (optional)
 }
 
 // OIDCConfig holds settings for protecting the admin panel with OIDC SSO.
@@ -51,15 +48,13 @@ func (s S3Config) Configured() bool {
 // Config is the full application configuration.
 type Config struct {
 	Listen        string // HTTP listen address
-	AppURL        string // public base URL of the app (used for links in emails and admin)
+	AppURL        string // public base URL of the app (used for links in notifications and admin)
 	DatabaseURL   string
 	AdminEmail    string // login for the password admin login (when OIDC is off)
 	AdminPassword string
 	AppSecret     []byte        // HMAC key for signed cookies
-	AccessMode    string        // "direct" (email in list is enough) or "code" (one-time email code)
 	SessionTTL    time.Duration // participant session lifetime
-	CodeTTL       time.Duration // one-time code lifetime
-	SMTP          SMTPConfig
+	Notify        NotifyConfig
 	OIDC          OIDCConfig
 
 	MtxAPIURL     string // MediaMTX REST API, e.g. http://mediamtx:9997
@@ -78,15 +73,10 @@ func Load() (*Config, error) {
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		AdminEmail:    strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
-		AccessMode:    getenv("ACCESS_MODE", "direct"),
 		SessionTTL:    getduration("SESSION_TTL", 12*time.Hour),
-		CodeTTL:       getduration("CODE_TTL", 10*time.Minute),
-		SMTP: SMTPConfig{
-			Host: os.Getenv("SMTP_HOST"),
-			Port: getenvInt("SMTP_PORT", 587),
-			User: os.Getenv("SMTP_USER"),
-			Pass: os.Getenv("SMTP_PASS"),
-			From: os.Getenv("SMTP_FROM"),
+		Notify: NotifyConfig{
+			WebhookURL:    strings.TrimSpace(os.Getenv("NOTIFY_WEBHOOK_URL")),
+			WebhookSecret: os.Getenv("NOTIFY_WEBHOOK_SECRET"),
 		},
 		OIDC: OIDCConfig{
 			Enabled:      strings.EqualFold(getenv("OIDC_ENABLED", "false"), "true"),
@@ -111,9 +101,6 @@ func Load() (*Config, error) {
 			Prefix:    strings.Trim(getenv("S3_PREFIX", "recordings"), "/"),
 		},
 	}
-	if c.SMTP.From == "" {
-		c.SMTP.From = c.SMTP.User
-	}
 	if c.OIDC.Enabled {
 		if c.OIDC.IssuerURL == "" || c.OIDC.ClientID == "" {
 			return nil, fmt.Errorf("OIDC_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
@@ -126,19 +113,11 @@ func Load() (*Config, error) {
 		c.S3.Prefix = "recordings"
 	}
 
-	switch c.AccessMode {
-	case "direct", "code":
-	default:
-		return nil, fmt.Errorf("ACCESS_MODE must be \"direct\" or \"code\", got %q", c.AccessMode)
-	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
 	if c.AdminEmail == "" || c.AdminPassword == "" {
 		return nil, fmt.Errorf("ADMIN_EMAIL and ADMIN_PASSWORD are required")
-	}
-	if c.AccessMode == "code" && c.SMTP.Host == "" {
-		log.Println("warning: ACCESS_MODE=code but SMTP_HOST is not set; login codes cannot be delivered")
 	}
 
 	if s := strings.TrimSpace(os.Getenv("APP_SECRET")); s != "" {

@@ -2,16 +2,36 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
+	"math/big"
 	"strings"
 
 	"github.com/vdao/webinar_mtx/internal/model"
 )
 
+// codeAlphabet avoids visually confusable characters (0/O, 1/I/l).
+const codeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+
+// genParticipantCode produces a personal access code (~60 bits of entropy
+// from crypto/rand — the code is an access credential).
+func genParticipantCode() string {
+	b := make([]byte, 12)
+	max := big.NewInt(int64(len(codeAlphabet)))
+	for i := range b {
+		n, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			panic(err) // crypto/rand never fails on supported platforms
+		}
+		b[i] = codeAlphabet[n.Int64()]
+	}
+	return string(b)
+}
+
 func scanParticipant(row interface{ Scan(...any) error }) (*model.Participant, error) {
 	var p model.Participant
-	err := row.Scan(&p.ID, &p.WebinarID, &p.Email, &p.Name, &p.Status, &p.Source,
+	err := row.Scan(&p.ID, &p.WebinarID, &p.Email, &p.Name, &p.Code, &p.Status, &p.Source,
 		&p.CreatedAt, &p.LastSeenAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -22,22 +42,22 @@ func scanParticipant(row interface{ Scan(...any) error }) (*model.Participant, e
 	return &p, nil
 }
 
-const participantCols = `id, webinar_id, email, name, status, source, created_at, last_seen_at`
+const participantCols = `id, webinar_id, email, name, code, status, source, created_at, last_seen_at`
 
-// AddParticipant inserts a participant; an existing (webinar,email) pair is
-// updated (name refreshed, status kept). Returns the stored record and
-// whether it was newly created.
+// AddParticipant inserts a participant with a fresh personal code; an
+// existing (webinar,email) pair is updated (name refreshed, code and status
+// kept). Returns the stored record and whether it was newly created.
 func (s *Store) AddParticipant(ctx context.Context, webinarID, email, name, source string) (*model.Participant, bool, error) {
 	p := &model.Participant{WebinarID: webinarID, Email: email, Name: name, Source: source}
 	var created bool
 	err := s.DB.QueryRowContext(ctx,
-		`INSERT INTO participants (id, webinar_id, email, name, source)
-		 VALUES ($1,$2,$3,$4,$5)
+		`INSERT INTO participants (id, webinar_id, email, name, code, source)
+		 VALUES ($1,$2,$3,$4,$5,$6)
 		 ON CONFLICT (webinar_id, email) DO UPDATE
 		   SET name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE participants.name END
-		 RETURNING id, status, created_at, (xmax = 0)`,
-		"p_"+randomID(), webinarID, email, name, source,
-	).Scan(&p.ID, &p.Status, &p.CreatedAt, &created)
+		 RETURNING id, code, status, created_at, (xmax = 0)`,
+		"p_"+randomID(), webinarID, email, name, genParticipantCode(), source,
+	).Scan(&p.ID, &p.Code, &p.Status, &p.CreatedAt, &created)
 	if err != nil {
 		return nil, false, err
 	}
@@ -45,33 +65,41 @@ func (s *Store) AddParticipant(ctx context.Context, webinarID, email, name, sour
 }
 
 // ImportParticipants bulk-inserts participants with source 'import'.
-// Returns the number of newly inserted rows (existing ones are skipped).
-func (s *Store) ImportParticipants(ctx context.Context, webinarID string, emails, names []string) (int, error) {
+// Returns the newly created records (existing ones are skipped) with email,
+// name and code filled for notification purposes.
+func (s *Store) ImportParticipants(ctx context.Context, webinarID string, emails, names []string) ([]*model.Participant, error) {
 	if len(emails) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	ids := make([]string, len(emails))
+	codes := make([]string, len(emails))
 	for i := range ids {
 		ids[i] = "p_" + randomID()
+		codes[i] = genParticipantCode()
 	}
 	src := make([]string, len(emails))
 	for i := range src {
 		src[i] = model.SourceImport
 	}
-	var inserted int
+	var inserted []*model.Participant
 	err := withTx(ctx, s.DB, func(q execer) error {
 		rows, err := q.QueryContext(ctx,
-			`INSERT INTO participants (id, webinar_id, email, name, source)
-			 SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+			`INSERT INTO participants (id, webinar_id, email, name, code, source)
+			 SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
 			 ON CONFLICT (webinar_id, email) DO NOTHING
-			 RETURNING id`,
-			pgArray(ids), expandArg(webinarID, len(emails)), pgArray(emails), pgArray(names), src)
+			 RETURNING email, name, code`,
+			pgArray(ids), expandArg(webinarID, len(emails)), pgArray(emails),
+			pgArray(names), pgArray(codes), src)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			inserted++
+			p := &model.Participant{WebinarID: webinarID, Source: model.SourceImport}
+			if err := rows.Scan(&p.Email, &p.Name, &p.Code); err != nil {
+				return err
+			}
+			inserted = append(inserted, p)
 		}
 		return rows.Err()
 	})
@@ -84,32 +112,44 @@ func (s *Store) ParticipantByID(ctx context.Context, id string) (*model.Particip
 		`SELECT `+participantCols+` FROM participants WHERE id=$1`, id))
 }
 
-// ParticipantByEmail fetches an active participant for a webinar by email.
-// Returns ErrNotFound when the email is not registered, and a participant with
-// Status=blocked when the participant is blocked.
-func (s *Store) ParticipantByEmail(ctx context.Context, webinarID, email string) (*model.Participant, error) {
-	p, err := scanParticipant(s.DB.QueryRowContext(ctx,
-		`SELECT `+participantCols+` FROM participants WHERE webinar_id=$1 AND email=$2`,
-		webinarID, email))
+// ParticipantByCode resolves a personal access code. Codes are globally
+// unique, so the webinar check guards against a code from another room.
+func (s *Store) ParticipantByCode(ctx context.Context, webinarID, code string) (*model.Participant, error) {
+	return scanParticipant(s.DB.QueryRowContext(ctx,
+		`SELECT `+participantCols+` FROM participants WHERE code=$1 AND webinar_id=$2`,
+		code, webinarID))
+}
+
+// RegenParticipantCode replaces the personal code (e.g. after a leak).
+func (s *Store) RegenParticipantCode(ctx context.Context, id string) (*model.Participant, error) {
+	var code string
+	err := s.DB.QueryRowContext(ctx,
+		`UPDATE participants SET code=$2 WHERE id=$1 RETURNING code`, id, genParticipantCode(),
+	).Scan(&code)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-	if p.Status == model.ParticipantBlocked {
-		return p, nil // caller decides how to report blocked access
+	p, err := s.ParticipantByID(ctx, id)
+	if err != nil {
+		return nil, err
 	}
+	p.Code = code
 	return p, nil
 }
 
 // ListParticipants lists participants of a webinar, optionally filtered by a
-// substring of email or name, newest first.
+// substring of email, name or code, newest first.
 func (s *Store) ListParticipants(ctx context.Context, webinarID, query string, limit int) ([]*model.Participant, error) {
-	if limit <= 0 || limit > 1000 {
+	if limit <= 0 || limit > 20000 {
 		limit = 500
 	}
 	q := `SELECT ` + participantCols + ` FROM participants WHERE webinar_id=$1`
 	args := []any{webinarID}
 	if query != "" {
-		q += ` AND (email ILIKE $2 OR name ILIKE $2)`
+		q += ` AND (email ILIKE $2 OR name ILIKE $2 OR code ILIKE $2)`
 		args = append(args, "%"+escapeLike(query)+"%")
 	}
 	q += ` ORDER BY created_at DESC LIMIT ` + itoa(limit)
