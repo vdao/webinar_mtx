@@ -240,6 +240,26 @@ git push origin v0.3.0
 (а также `:0.3` и `:latest`). Если хотите, чтобы `docker-compose.yml` тянул
 образ с Docker Hub — поменяйте `image:` у сервиса `app`.
 
+## Развёртывание на сервере
+
+`docker-compose.yml` из репозитория готов к использованию как основа деплоя
+(его же использует `deploy.yml`). Чек-лист прода:
+
+1. На сервере: каталог (по умолчанию `/opt/webinar_mtx`) с файлами
+   `docker-compose.yml`, `.env`, `mediamtx/mediamtx.yml` из репозитория.
+2. В `.env` заполнить: `APP_TAG` (пинуйте релиз, напр. `0.0.2`),
+   `ADMIN_EMAIL`/`ADMIN_PASSWORD`, `APP_SECRET` (`openssl rand -hex 32`),
+   пароли `POSTGRES_*`, `APP_URL` и `RTMP_URL` с доменом сервера,
+   `MEDIA_HOST` — домен/IP сервера (без него WebRTC за NAT не подключится).
+3. Reverse-proxy с TLS (Caddy/Traefik/nginx): `https://вебинар.домен` →
+   `app:8080`.
+4. Firewall: наружу нужны `8080` (или 443 на прокси), `1935` (RTMP для
+   ведущего), `8189/tcp+udp` (медиа WebRTC). Порт `8889` наружу не обязателен
+   — сигналинг WHEP идёт через приложение.
+5. `docker compose pull && docker compose up -d` — миграции применятся сами.
+6. Бэкапы: `pg_dump` тома `pgdata` (записи в S3, локальный том записей —
+   временный).
+
 ## Автодеплой
 
 `.github/workflows/deploy.yml` деплоит по SSH при публикации тега `v*` (или вручную):

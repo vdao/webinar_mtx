@@ -1,6 +1,7 @@
 services:
   app:
-    image: ghcr.io/vdao/webinar_mtx:latest
+    # Версию образа удобно пиновать через .env: APP_TAG=0.0.2
+    image: ghcr.io/vdao/webinar_mtx:${APP_TAG:-latest}
     build: .
     restart: unless-stopped
     environment:
