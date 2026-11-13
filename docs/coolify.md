@@ -101,6 +101,14 @@ Coolify — self-hosted PaaS: сам termin'ит HTTPS (Traefik-прокси), �
 **RTMP не проходит** — порт `1935` опубликован (есть в compose), проверьте
 firewall сервера и `RTMP_URL` в переменных.
 
+**`failed to read dockerfile: open Dockerfile: no such file or directory`** —
+ресурс собрался как сборка образа, а не как compose-стек: проверьте два
+момента. Во-первых, ресурс должен быть типа **Docker Compose** (не
+Application с build pack). Во-вторых, **Docker Compose Location** должен
+указывать на `deploy/coolify/docker-compose.yml` — в корневом
+`docker-compose.yml` есть секция `build: .` (для локальной разработки),
+поэтому Coolify пытается собирать образ и не находит Dockerfile.
+
 **Хочу `network_mode: host` для mediamtx** — можно отредактировать compose
 в Coolify (он хранит свою копию): уберите `ports:` у mediamtx и добавьте
 `network_mode: host`; тогда `MTX_AUTHHTTPADDRESS` должен ссылаться на
